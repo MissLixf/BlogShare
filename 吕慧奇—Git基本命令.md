@@ -8,7 +8,7 @@
     * 2.暂存区:把一些写好的代码暂时存储的地方。
     * 3:历史区：生成一个版本记录的地方。
 ## Git的安装
-* 这里就不详细说怎么安装了，根据不同的系统，安装的方式也不同，网上有很多的教程。我想说的是，安装完成后，还需要最后一步设置，在命令行输入：
+* 这里就不详细说怎么安装了，根据不同的系统，安装的方式也不同，网上有很多的教程。安装完成后，还需要最后一步设置，在命令行输入：
 ```python
 $ git config --global user.name "Your Name"
 $ git config --global user.email "email@example.com"
@@ -80,7 +80,7 @@ $ git reflog
 ```python
 $ git lg
 ```
-* 什么？输入上去，什么都没有，别着急同学们。把这个命令复制到你的git 终端里面。
+* 什么？输入上去，什么都没有。把这个命令复制到你的git 终端里面。
 ```python
 git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"  
 ```
