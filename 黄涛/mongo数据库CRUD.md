@@ -1437,6 +1437,97 @@ cursor = db.inventory.find(
 
 
 
+## 更新文档
+
+更新文档主要使用如下几个方法：
+
+- `update_one()`
+- `update_many()`
+- `replace_one()`
+
+准备数据：
+
+```python
+db.inventory.insert_many([
+    {"item": "canvas",
+     "qty": 100,
+     "size": {"h": 28, "w": 35.5, "uom": "cm"},
+     "status": "A"},
+    {"item": "journal",
+     "qty": 25,
+     "size": {"h": 14, "w": 21, "uom": "cm"},
+     "status": "A"},
+    {"item": "mat",
+     "qty": 85,
+     "size": {"h": 27.9, "w": 35.5, "uom": "cm"},
+     "status": "A"},
+    {"item": "mousepad",
+     "qty": 25,
+     "size": {"h": 19, "w": 22.85, "uom": "cm"},
+     "status": "P"},
+    {"item": "notebook",
+     "qty": 50,
+     "size": {"h": 8.5, "w": 11, "uom": "in"},
+     "status": "P"},
+    {"item": "paper",
+     "qty": 100,
+     "size": {"h": 8.5, "w": 11, "uom": "in"},
+     "status": "D"},
+    {"item": "planner",
+     "qty": 75,
+     "size": {"h": 22.85, "w": 30, "uom": "cm"},
+     "status": "D"},
+    {"item": "postcard",
+     "qty": 45,
+     "size": {"h": 10, "w": 15.25, "uom": "cm"},
+     "status": "A"},
+    {"item": "sketchbook",
+     "qty": 80,
+     "size": {"h": 14, "w": 21, "uom": "cm"},
+     "status": "A"},
+    {"item": "sketch pad",
+     "qty": 95,
+     "size": {"h": 22.85, "w": 30.5, "uom": "cm"},
+     "status": "A"}])
+```
+
+### 更新表中的文档
+
+如果要修改字段的值，可以使用更新运算符，比如`$set`，基本格式如下：
+
+```python
+{
+    <更新运算符>: {<字段1>: <值1>, ...},
+    <更新运算符>: {<字段2>: <值2>, ...},
+}
+```
+
+#### 更新单个文档：`update_one()`
+
+```python
+res = db.inventory.update_one(
+    {'item': 'paper'},  # filter
+    {                   # update
+        '$set': {
+            'size.uom': 'cm',
+            'status': 'P'
+        },
+        '$currentDate': {
+            'lastModified': True
+        }
+    }
+)
+
+
+print(res)  # <pymongo.results.UpdateResult object at 0x0000024A22FFB3C8>
+print(res.matched_count)  # 1
+print(res.modified_count)  # 1
+
+cursor = db.inventory.find({'item': 'paper'})
+docs = [doc for doc in cursor]
+print(docs)
+```
+
 
 
 ## 运算符列表：
@@ -1457,6 +1548,8 @@ cursor = db.inventory.find(
 |   `$slice`   |     数组切片     |
 |   `$type`    |  字段值类型检查  |
 |  `$exists`   | 字段是否存在判断 |
+
+
 
 # mongoengine
 
