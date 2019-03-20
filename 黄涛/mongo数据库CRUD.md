@@ -1441,9 +1441,12 @@ cursor = db.inventory.find(
 
 更新文档主要使用如下几个方法：
 
-- `update_one()`
-- `update_many()`
-- `replace_one()`
+- `db.collection.update_one()` 最多更新一个文档（即使匹配出多个）
+- `db.collection.update_many()` 更新所有匹配的文档
+- `db.collection.replace_one() `最多替换一个文档（即使匹配出过个）
+- `db.collection.update()` 
+  - 如果匹配处单个文档，则进行更新或替换
+  - 如果匹配出多个文档，则更新这些文档
 
 准备数据：
 
@@ -1636,7 +1639,7 @@ print(docs)
 """
 ```
 
-### 行为
+### 更新行为
 
 #### 原子性
 
@@ -1656,6 +1659,149 @@ MongoDB保持写操作中文档的顺序，除了以下情况：
 #### `upsert`选项
 
 调用`update_one(), update_many(), replace_one()`这些方法时，如果指定`upsert=True`，那么当匹配的文档不存在时，将创建新的文档并插入。
+
+## 删除文档
+
+删除文档的方法：
+
+* `db.collection.deleteOne()` 最多删除一个文档（即便匹配出多个结果）
+* `db.collection.deleteMany()` 删除匹配的所有文档
+* `db.collection.remove()` 删除匹配的单个或多个文档
+
+准备数据：
+
+```python
+import pymongo
+
+client = pymongo.MongoClient('mongodb://localhost:27017/')
+db = client.test8
+
+db.inventory.insert_many([
+    {"item": "journal",
+     "qty": 25,
+     "size": {"h": 14, "w": 21, "uom": "cm"},
+     "status": "A"},
+    {"item": "notebook",
+     "qty": 50,
+     "size": {"h": 8.5, "w": 11, "uom": "in"},
+     "status": "P"},
+    {"item": "paper",
+     "qty": 100,
+     "size": {"h": 8.5, "w": 11, "uom": "in"},
+     "status": "D"},
+    {"item": "planner",
+     "qty": 75,
+     "size": {"h": 22.85, "w": 30, "uom": "cm"},
+     "status": "D"},
+    {"item": "postcard",
+     "qty": 45,
+     "size": {"h": 10, "w": 15.25, "uom": "cm"},
+     "status": "A"}])
+```
+
+### 删除所有文档
+
+如果要删除所有文档，只需给`delete_many()`方法的filter传入一个空文档即可
+
+```python
+res = db.inventory.count_documents({})  # 查看所有文档数
+print(res) # 5                            
+                                      
+res = db.inventory.delete_many({})    
+print(res.deleted_count)   # 5            
+```
+
+### 删除满足条件的所有文档
+
+只需给`delete_many()`方法的filter传入过滤条件即可，比如
+
+```python
+# 删除status是A点所有文档
+res = db.inventory.delete_many({'status': 'A'})
+print(res.deleted_count)  # 2
+```
+
+### 只删除满足条件的一个文档
+
+```python
+count = db.inventory.count_documents({'status': 'D'})
+cursor = db.inventory.find({'status': 'D'})
+print(count) # 2
+print([item for item in cursor])
+"""
+[{
+	'_id': ObjectId('5c922bb5bddaf04be0e84076'),
+	'item': 'paper',
+	'qty': 100,
+	'size': {
+		'h': 8.5,
+		'w': 11,
+		'uom': 'in'
+	},
+	'status': 'D'
+}, {
+	'_id': ObjectId('5c922bb5bddaf04be0e84077'),
+	'item': 'planner',
+	'qty': 75,
+	'size': {
+		'h': 22.85,
+		'w': 30,
+		'uom': 'cm'
+	},
+	'status': 'D'
+}]
+"""
+
+db.inventory.delete_one({'status': 'D'})
+count = db.inventory.count_documents({'status': 'D'}) 
+cursor = db.inventory.find({'status': 'D'})           
+print(count)                                          
+print([item for item in cursor]) # 满足条件的第一个文档已被删除
+"""
+[{
+	'_id': ObjectId('5c922bb5bddaf04be0e84077'),
+	'item': 'planner',
+	'qty': 75,
+	'size': {
+		'h': 22.85,
+		'w': 30,
+		'uom': 'cm'
+	},
+	'status': 'D'
+}]
+"""
+```
+
+### 删除行为
+
+#### 索引
+
+删除操作不会删除索引，即使从表从删除所有文档。
+
+#### 原子性
+
+单个文档的级别上是原子性操作。
+
+## 批量写操作：
+
+批量写操作只对单张表有效。pymongo提供的`bulkWrite()`方法支持如下的多种写操作：
+
+* `insertOne`
+* `updateOne`
+* `updateMany`
+* `replaceOne`
+* `deleteOne`
+* `deleteMany`
+
+每种写操作可以作为一个文档，放在列表中，然后传给`bulkWreite()`
+
+下面我们来试一下，准备数据：
+
+```python
+
+```
+
+
 
 ## 运算符列表：
 
