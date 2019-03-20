@@ -1169,7 +1169,7 @@ cursor = db.inventory.find(  # find的第二个参数是投影文档
 SELECT _id, item, status from inventory WHERE status = "A"
 ```
 
-#### 丢弃 `-id` 字段
+#### 丢弃 `_id` 字段
 
 `_id`字段会默认返回，如果不需要，可以在投影文档中指定 `_id: 0`
 
@@ -1513,7 +1513,7 @@ res = db.inventory.update_one(
             'status': 'P'
         },
         '$currentDate': {
-            'lastModified': True
+            'lastModified': True  # 新增lastModified字段，值是当前时间
         }
     }
 )
@@ -1526,28 +1526,157 @@ print(res.modified_count)  # 1
 cursor = db.inventory.find({'item': 'paper'})
 docs = [doc for doc in cursor]
 print(docs)
+"""
+[{
+	'_id': ObjectId('5c8f8dcfbddaf03aa4b6a409'),
+	'item': 'paper',
+	'qty': 100,
+	'size': {
+		'h': 8.5,
+		'w': 11,
+		'uom': 'cm'
+	},
+	'status': 'P',
+	'lastModified': datetime.datetime(2019, 3, 18, 12, 36, 45, 391000)
+}]
+"""
 ```
 
+#### 更新多个文档：`update_many()`
 
+```python
+# 更新qty小于50的文档
+res = db.inventory.update_many(
+    {'qty': {'$lt': 50}},  # filter
+    {  # update
+        '$set': {'size.uom': 'in', 'status': 'P'},
+        '$currentDate': {'lastModified': True}
+     }
+)
+
+print(res)  # <pymongo.results.UpdateResult object at 0x0000014249CF7488>
+print(res.matched_count)  # 3
+print(res.modified_count)  # 3
+
+cursor = db.inventory.find({'qty': {'$lt': 50}})
+docs = [doc for doc in cursor]
+print(docs)
+"""
+[{
+	'_id': ObjectId('5c8f8dcfbddaf03aa4b6a405'),
+	'item': 'journal',
+	'qty': 25,
+	'size': {
+		'h': 14,
+		'w': 21,
+		'uom': 'in'
+	},
+	'status': 'P',
+	'lastModified': datetime.datetime(2019, 3, 19, 12, 26, 33, 410000)
+}, {
+	'_id': ObjectId('5c8f8dcfbddaf03aa4b6a407'),
+	'item': 'mousepad',
+	'qty': 25,
+	'size': {
+		'h': 19,
+		'w': 22.85,
+		'uom': 'in'
+	},
+	'status': 'P',
+	'lastModified': datetime.datetime(2019, 3, 19, 12, 26, 33, 413000)
+}, {
+	'_id': ObjectId('5c8f8dcfbddaf03aa4b6a40b'),
+	'item': 'postcard',
+	'qty': 45,
+	'size': {
+		'h': 10,
+		'w': 15.25,
+		'uom': 'in'
+	},
+	'status': 'P',
+	'lastModified': datetime.datetime(2019, 3, 19, 12, 26, 33, 414000)
+}]
+"""
+```
+
+### 替换文档：`replace_one()`
+
+如果要替换整个文档的内容（除了`_id`字段），只需传入一个新的文档，作为`replace_one（）`的第二个参数即可。替换的文档只能包含键值对，不能巴博涵其他表达式，比如更新运算符。替换的文档可以和原文的的字段不同，由于`_id`不可变，你可以省略`_id`字段（当然，如果你非要在替换文档中包含`_id`字段，那么必须给出与原文档一样的值）
+
+```python
+# 替换满足筛选条件的第一个文档
+res = db.inventory.replace_one(
+    {'item': 'paper'},  # filter
+    {'item': 'paper',   # replacement_doc
+     'instock': [
+         {"warehouse": "A", "qty": 60},
+         {"warehouse": "B", "qty": 40}
+     ]}
+)
+
+print(res)  # <pymongo.results.UpdateResult object at 0x000001AD62170448>
+print(res.matched_count)  # 1
+print(res.modified_count)  # 1
+
+cursor = db.inventory.find({'item': 'paper'})
+docs = [doc for doc in cursor]
+print(docs)
+"""
+[{
+	'_id': ObjectId('5c8f8dcfbddaf03aa4b6a409'),
+	'item': 'paper',
+	'instock': [{
+		'warehouse': 'A',
+		'qty': 60
+	}, {
+		'warehouse': 'B',
+		'qty': 40
+	}]
+}]
+"""
+```
+
+### 行为
+
+#### 原子性
+
+MongoDB的所有写操作在单个文档上都是原子性的。
+
+#### `_id`字段
+
+一旦设置，该字段的值不可修改，也不能被替换。
+
+#### 字段顺序
+
+MongoDB保持写操作中文档的顺序，除了以下情况：
+
+* `_id`字段总是文档中的第一个字段
+* 如果更新包含对字段进行命名的操作，可能导致文档的字段重新排序
+
+#### `upsert`选项
+
+调用`update_one(), update_many(), replace_one()`这些方法时，如果指定`upsert=True`，那么当匹配的文档不存在时，将创建新的文档并插入。
 
 ## 运算符列表：
 
-|     名称     |       描述       |
-| :----------: | :--------------: |
-|    `$or`     |      逻辑或      |
-|    `$eq`     |       等于       |
-|    `$gt`     |       大于       |
-|    `$gte`    |     大于等于     |
-|    `$in`     |     在数组中     |
-|    `$lt`     |       小于       |
-|    `$lte`    |     小于等于     |
-|    `$ne`     |      不等于      |
-|    `$nin`    |    不在数组中    |
-| `$elemMatch` |   数组元素满足   |
-|    `$all`    |   数组包含元素   |
-|   `$slice`   |     数组切片     |
-|   `$type`    |  字段值类型检查  |
-|  `$exists`   | 字段是否存在判断 |
+|      名称      |             描述             |
+| :------------: | :--------------------------: |
+|     `$or`      |            逻辑或            |
+|     `$eq`      |             等于             |
+|     `$gt`      |             大于             |
+|     `$gte`     |           大于等于           |
+|     `$in`      |           在数组中           |
+|     `$lt`      |             小于             |
+|     `$lte`     |           小于等于           |
+|     `$ne`      |            不等于            |
+|     `$nin`     |          不在数组中          |
+|  `$elemMatch`  |         数组元素满足         |
+|     `$all`     |         数组包含元素         |
+|    `$slice`    |           数组切片           |
+|    `$type`     |        字段值类型检查        |
+|   `$exists`    |       字段是否存在判断       |
+|     `$set`     |         更新字段的值         |
+| `$currentDate` | 设定某字段的值为当前日期时间 |
 
 
 
