@@ -1874,6 +1874,26 @@ print([item for item in cursor])
 """
 ```
 
+### 分片集合的批量插入策略
+
+暂不讨论。
+
+## 写入重试
+
+写操作时，如果发生网络错误，是否支持重试。在pymongo中，可以在实例化客户端时指定，比如：
+
+```python
+client = pymongo.MongoClient(
+    host='localhost',
+    port=27017,
+    retryWrites=True  # 默认是False，具体可以查看源码中的doc
+)
+```
+
+## 文本搜索
+
+MongoDB支持通过`$text`运算符对文本字段作索引，以方便文本搜索。不过嘛，不支持中文，洗洗睡。。。
+
 
 
 ## 运算符列表：
