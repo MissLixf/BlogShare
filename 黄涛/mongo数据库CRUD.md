@@ -246,6 +246,8 @@ print(res.inserted_ids)
 # [ObjectId('5c53e48bbddaf04c44880d70'), ObjectId('5c53e48bbddaf04c44880d71'), ObjectId('5c53e48bbddaf04c44880d72')]
 ```
 
+插入数据时，如果指定`_id`的值，那么该值不能和集合中已有文档的`_id`重复。
+
 ## 查询数据 
 
 查询使用`db.collection.find()`方法。
@@ -1494,7 +1496,7 @@ db.inventory.insert_many([
      "status": "A"}])
 ```
 
-### 更新表中的文档
+### 更新集合中的文档
 
 如果要修改字段的值，可以使用更新运算符，比如`$set`，基本格式如下：
 
@@ -1776,7 +1778,7 @@ print([item for item in cursor]) # 满足条件的第一个文档已被删除
 
 #### 索引
 
-删除操作不会删除索引，即使从表从删除所有文档。
+删除操作不会删除索引，即使从表中删除所有文档。
 
 #### 原子性
 
@@ -1784,21 +1786,92 @@ print([item for item in cursor]) # 满足条件的第一个文档已被删除
 
 ## 批量写操作：
 
-批量写操作只对单张表有效。pymongo提供的`bulkWrite()`方法支持如下的多种写操作：
+批量写操作只对单个集合有效。`insert_many()`能进行批量插入，另外，`bulk_write()`方法支持如下的多种写操作：
 
-* `insertOne`
-* `updateOne`
-* `updateMany`
-* `replaceOne`
-* `deleteOne`
-* `deleteMany`
+* `insert_one`
+* `update_one`
+* `update_many`
+* `replace_one`
+* `delete_one`
+* `delete_many`
 
-每种写操作可以作为一个文档，放在列表中，然后传给`bulkWreite()`
+将每种操作放在列表中，然后传给`bulk_write()`
 
 下面我们来试一下，准备数据：
 
 ```python
+import pymongo
 
+client = pymongo.MongoClient('mongodb://localhost:27017/')
+db = client.test8
+
+res = db.characters.insert_many([
+    {"_id": 1, "char": "Brisbane", "class": "monk", "lvl": 4},
+    {"_id": 2, "char": "Eldon", "class": "alchemist", "lvl": 3},
+    {"_id": 3, "char": "Meldane", "class": "ranger", "lvl": 3}
+])
+
+print(res.inserted_ids) # [1, 2, 3]
+```
+
+使用`bulk_write()`对characters集合执行多个操作：
+
+```python
+import pymongo
+from pymongo import InsertOne, UpdateOne, DeleteOne, ReplaceOne  # 导入各操作对象
+
+client = pymongo.MongoClient('mongodb://localhost:27017/')
+db = client.test8
+
+try:
+    res = db.characters.bulk_write([
+        InsertOne({'_id': 4, 'char': 'Dithras', 'class': 'barbarian', 'lvl': 4}),
+        InsertOne({'_id': 5, 'char': 'Taeln', 'class': 'fighter', 'lvl': 3}),
+        UpdateOne({'char': 'Eldon'},
+                  {'$set': {'status': 'Critical Injury'}}, upsert=True),
+        UpdateOne({'char': 'Ayhan'},
+                  {'$set': {'status': 'God hit'}}, upsert=True),
+        ReplaceOne({'char': 'Meldane'},
+                   {"char": "Tanys", "class": "oracle", "lvl": 4}, upsert=True),
+        DeleteOne({'char': 'Brisbane'}),
+    ])
+    print(res.inserted_count)  # 2
+    print(res.modified_count)  # 2
+    print(res.upserted_count)  # 1
+    print(res.deleted_count)  # 1
+except Exception as e:
+    print(e)
+    
+cursor = db.characters.find({})
+print([item for item in cursor])
+"""
+[{
+	'_id': 2,
+	'char': 'Eldon',
+	'class': 'alchemist',
+	'lvl': 3,
+	'status': 'Critical Injury'
+}, {
+	'_id': 3,
+	'char': 'Tanys',
+	'class': 'oracle',
+	'lvl': 4
+}, {
+	'_id': 4,
+	'char': 'Dithras',
+	'class': 'barbarian',
+	'lvl': 4
+}, {
+	'_id': 5,
+	'char': 'Taeln',
+	'class': 'fighter',
+	'lvl': 3
+}, {
+	'_id': ObjectId('5c92fc403744b8cc2b23f3c3'),
+	'char': 'Ayhan',
+	'status': 'God hit'
+}]
+"""
 ```
 
 
