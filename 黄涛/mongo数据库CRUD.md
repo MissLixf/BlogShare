@@ -1917,8 +1917,6 @@ MongoDB支持通过`$text`运算符对文本字段作索引，以方便文本搜
 |     `$set`     |         更新字段的值         |
 | `$currentDate` | 设定某字段的值为当前日期时间 |
 
-
-
 # mongoengine
 
 待完善。
