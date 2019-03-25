@@ -125,6 +125,18 @@ MongoDB将数据存储为BSON文档（BSON是JSON文档的二进制表示，但�
 * 不要以`$`或`.`开头
 * 字段名不可重复
 
+在PyMongo中，使用python的字典表示文档，例如下面字典可以用来表示一篇博文：
+
+```python
+>>> import datetime
+>>> post = {"author": "Mike",
+...         "text": "My first blog post!",
+...         "tags": ["mongodb", "python", "pymongo"],
+...         "date": datetime.datetime.utcnow()}
+```
+
+值得注意的是，文档可以包含python中的原生类型（比如`datetime.datetime`实例），PyMongo会将其自动转化为合适的BSON类型。
+
 ### 点
 
 MongoDB使用`.`点来访问数组或嵌套文档中的元素：
@@ -282,7 +294,7 @@ db.inventory.insert_many([
      "status": "A"}])
 ```
 
-### 查询集合中的所有文档
+### 查询集合中的所有文档：`find()`
 
 传入一个空文档作为find的查询条件即可
 
@@ -304,6 +316,64 @@ docs = [doc for doc in cursor]
 [{'status': 'A', 'item': 'journal', ...}, ...]
 """
 ```
+
+### 查询单个文档：`find_one()`
+
+`find_one()`方法返回满足查询条件的一个文档，或者返回`None`（如果没有匹配的结果）。适用于：
+
+* 你知道有且只有一个匹配的文档，比如通过`ObjectId`进行查询
+* 你只需要第一个匹配的文档
+
+### 根据`ObjectID`对象查询
+
+注意，`ObjectId`对象和它的字符串表现是完全不同的，后者不可直接用于查询
+
+```python
+import pymongo
+import datetime
+
+
+client = pymongo.MongoClient(
+    host='localhost',
+    port=27017,
+    retryWrites=True
+)
+db = client.test8
+
+blog = {"author": "Ayhan",
+        "text": "My first blog post!",
+        "tags": ["mongodb", "python", "pymongo"],
+        "date": datetime.datetime.utcnow()}
+
+post_id = db.posts.insert_one(blog).inserted_id  # 返回ObjectId对象
+print(post_id)  # 5c948354bddaf02674a54faa
+
+res1 = db.posts.find_one({'_id': post_id})  # 通过ObjectId对象查询
+print(res1)
+"""
+{
+	'_id': ObjectId('5c948354bddaf02674a54faa'),
+	'author': 'Ayhan',
+	'text': 'My first blog post!',
+	'tags': ['mongodb', 'python', 'pymongo'],
+	'date': datetime.datetime(2019, 3, 22, 6, 40, 20, 164000)
+}
+"""
+
+res2 = db.posts.find_one({'_id': str(post_id)}) # 通过ObjectId对象的字符串表现进行查询
+print(res2)  # None
+```
+
+如果想通过`ObjectId`的字符串进行查询，需要将字符串转为对象：
+
+```python
+from bson.objectid import ObjectId
+
+object_id_str = '5c948354bddaf02674a54faa'
+db.posts.find_one({'_id': ObjectId(object_id_str)})
+```
+
+
 
 ### 指定相等条件
 
@@ -1839,6 +1909,8 @@ try:
     print(res.modified_count)  # 2
     print(res.upserted_count)  # 1
     print(res.deleted_count)  # 1
+    # 以上打印方式比较繁琐，也可以这样直接打印本次批量操作的详细信息：
+    print(res.bulk_api_result)
 except Exception as e:
     print(e)
     
@@ -1877,6 +1949,115 @@ print([item for item in cursor])
 ### 分片集合的批量插入策略
 
 暂不讨论。
+
+## 索引
+
+添加索引可以加速特定的查询，也可以为文档在查询和存储增加额外的功能。下面演示下如何用PyMongo创建`unique`索引：
+
+```python
+db.user.create_index([
+    ('user_id', pymongo.ASCENDING)
+], unique=True)
+
+print(list(db.user.index_information()))
+"""
+['_id_', 'user_id_1']
+
+_id_ 是MongoDB自动创建的索引
+user_id_1 是我们刚刚创建的索引
+"""
+```
+
+创建了唯一索引约束后，如果插入数据的`user_id`字段的值在集合中已经存在，会插入失败。
+
+## 聚合
+
+准备数据：
+
+```python
+import pymongo
+
+client = pymongo.MongoClient(host='localhost', port=27017)
+db = client.test9
+
+db.things.insert_many([
+    {'x': 1, 'tags': ['dog', 'cat']},
+    {'x': 2, 'tags': ['cat']},
+    {'x': 2, 'tags': ['mouse', 'cat', 'dog']},
+    {'x': 3, 'tags': []},
+])
+```
+
+### Pipeline聚合
+
+下面执行一个简答的聚合操作，统计集合内`tags`数组内每个元素的出现次数。要实现这个操作，需要传入3个操作给pipeline，首先展开`tags`数组，然后按元素进行分组并加总，最后根据加总数进行排序即可。 
+
+注意，由于python的字典是无序的，如果要求精确排序（比如`$sort`），就得使用`SON`或者`collections.OrderedDict`对象：
+
+```python
+import pymongo
+from bson.son import SON
+import pprint
+
+client = pymongo.MongoClient(host='localhost', port=27017)
+db = client.test9
+
+pipeline = [
+    {'$unwind': '$tags'},
+    {'$group': {'_id': '$tags', 'count': {'$sum': 1}}},  # 以元素作为_id字段的值，以元素个数作为count字段的值，1表示正加总(-1则进行负加总)
+    {'$sort': SON([('count', -1), ('_id', -1)])}  # 先按count, 再按_id排序，-1表示倒序
+]
+pprint.pprint(list(db.things.aggregate(pipeline)))
+"""
+[{'_id': 'cat', 'count': 3},
+ {'_id': 'dog', 'count': 2},
+ {'_id': 'mouse', 'count': 1}]
+"""
+
+# 如果颠倒排序顺序为： {'$sort': SON([('_id', -1), ('count', -1)])}，结果如下：
+"""
+[{'_id': 'mouse', 'count': 1},
+ {'_id': 'dog', 'count': 2},
+ {'_id': 'cat', 'count': 3}]
+"""
+
+# 如果想查看该操作的详细信息，可以使用command()方法：
+res = db.command('aggregate', 'things', pipeline=pipeline, explain=True)
+pprint.pprint(res)
+"""
+{'ok': 1.0,
+ 'stages': [{'$cursor': {'fields': {'_id': 0, 'tags': 1},
+                         'query': {},
+                         'queryPlanner': {'indexFilterSet': False,
+                                          'namespace': 'test9.things',
+                                          'parsedQuery': {},
+                                          'plannerVersion': 1,
+                                          'rejectedPlans': [],
+                                          'winningPlan': {'direction': 'forward',
+                                                          'stage': 'COLLSCAN'}}}},
+            {'$unwind': {'path': '$tags'}},
+            {'$group': {'_id': '$tags', 'count': {'$sum': {'$const': 1}}}},
+            {'$sort': {'sortKey': {'_id': -1, 'count': -1}}}]}
+"""
+```
+
+聚合框架还可以提供投影能力来重塑返回的数据。利用投影和聚合，你可以在结果中增加计算字段，创建虚拟子对象，或者提取子字段为根级字段。更多查看：[聚合框架](http://docs.mongodb.org/manual/applications/aggregation)
+
+### Map /  Reduce 聚合
+
+另一种实现聚合的方式是使用map reduce，下面我们通过定义map和reduce函数来实现上面的聚合计算。
+
+map函数循环数组，对其中的每个元素触发一个键值对儿`(key, 1)`：
+
+```python
+
+```
+
+
+
+### 高级 Map /  Reduce
+
+
 
 ## 写入重试
 
