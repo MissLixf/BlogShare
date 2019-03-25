@@ -95,3 +95,12 @@
 
 * [Thinking in Documents Part 1 (Blog Post)](https://www.mongodb.com/blog/post/thinking-documents-part-1?jmp=docs)
 
+# 数据建模相关概念
+
+## 数据模型设计
+
+有效的数据模型应满足应用的需求。文档结构的设计关键是使用嵌入式（embed），还是引用（references）的选择。
+
+####嵌入式数据模型
+
+#### 
