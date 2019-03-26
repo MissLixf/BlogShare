@@ -36,7 +36,22 @@
 }
 ```
 
-有关子文档优缺点，具体查看：https://docs.mongodb.com/manual/core/data-model-design/#data-modeling-embedding
+嵌入式数据模型允许应用在一条记录中存储关联的信息片段。这样的好处是，应用在完成常见的操作时，可以发出更少的查询和更新。
+
+通常在以下情况下使用嵌入式数据模型：
+
+- 实体之间存在“包含”关系，比如一对一。
+- 实体之间存在“一对多”关系，在这种关系中，“多”的文档常常在“一”的文档的上下文中出现或被查看（反之亦然）。
+
+通常，嵌入式能为读操作提供更好的性能，以及在单次数据库操作中请求和检索关联数据的能力。这也使得在单个原子性写操作中更新关联的数据成为可能。要访问嵌入的子文档，使用`.`操作即可。
+
+#### 嵌入式数据模型和文档大小限制
+
+MongoDB中的文档大小不得超过BSON文档尺寸的最大值，也就是16MB。
+
+#### 嵌入式文档模型和已废弃的MMAPv1
+
+在已创建的文档中嵌入数据会导致文档的增长。使用已弃用的MMAPv1存储引擎，文档增长会影响写入性能并导致数据碎片化。从版本3.0.0开始，MongoDB使用Power of 2 Sized Allocations取代MMAPv1的默认分配策略，以最大限度地减少数据碎片的可能性。有关详细信息，请参阅 [Power of 2 Sized Allocations](https://docs.mongodb.com/manual/core/mmapv1/#power-of-2-allocation) 。
 
 ### 引用
 
@@ -61,15 +76,19 @@
 }
 ```
 
-有关使用应用的优缺点，具体查看：https://docs.mongodb.com/manual/core/data-model-design/#data-modeling-referencing
+通常在以下情况下使用标准的数据模型：
+
+* 嵌入式会导致数据冗余，但又不能提供足够的性能优势时
+* 描述更复杂的多对的关系时
+* 模拟大型的分层数据集时
+
+引用比起嵌入式能提供更大的灵活性。但是客户端应用必须发起后续查询来解析引用，也就是说，规范化的数据模型需要更多的查询请求。
 
 ## 写操作的原子性
 
 ### 单文档原子性
 
-在MongoDB中，一次写操作在单个文档上保证原子性，即使这个操作修改了该文档的多个子文档。支持在单个文档中嵌入子文档的这种非标准化数据结构，比起跨多个文档和集合的标准方式，更有助于原子性操作。
-
-如果单次写操作修改了多个文档（比如，`db.collection.update_many()`），那么对每个文档的修改是原子性的，但是这整个操作并不是原子性的。
+在MongoDB中，写操作在单个文档上保证原子性，即使这个操作修改了单个文档的多个子文档。如果单次写操作修改了多个文档（比如，`db.collection.update_many()`），那么对每个文档的修改是原子性的，但是这整个操作并不是原子性的。支持在单个文档中嵌入子文档的这种非标准化数据结构，比起跨多个文档和集合的标准方式，更有助于原子性操作。
 
 从4.0版本开始，对于需要多文档读写保证原子性的场景，MongoDB为副本集提供了多文档事务支持。具体查看：https://docs.mongodb.com/manual/core/transactions/，
 
@@ -85,6 +104,53 @@
 
 更多信息可查看：[操作因素和数据模型](https://docs.mongodb.com/manual/core/data-model-operations/)
 
+## 分片
+
+MongoDB使用分片提供水平伸缩。这些集群支持可以支持大型数据集和超高的吞吐量的操作。分片允许用户对数据库内的集合做分区，然后在多个实例或分片间分发文档。
+
+MongoDB使用分片键（shard key）在分片集合中分发数据和应用程序流量。选择合适的分片键对性能影响重大，并且可以启用或阻止查询隔离并增加写入容量。仔细考虑要用作分片键的字段非常重要。
+
+见[分片](https://docs.mongodb.com/manual/sharding/)和 [分片键](https://docs.mongodb.com/manual/core/sharding-shard-key/)以获取更多信息。
+
+## 索引
+
+使用索引可以提高常见查询的性能。请对查询中经常出现的字段创建索引，为返回排序结果的所有操作创建索引。MongoDB会自动为`_id`字段创建索引。创建索引时，需要考虑一下索引行为：
+
+* 每个索引至少需要8kb的数据空间
+* 增加索引会对写操作产生负面的性能影响。对于具有高**写读比**的集合，索引是昂贵的开销，因为每次插入都需要更新任何索引
+* 具有高**读写比**的集合通常会从索引中受益
+* 处于活动状态时，每个索引都会占据磁盘空间和内存。这种用量可能会非常重要，并且出于容量规划，也应该被监控起来，尤其要关注工作集的大小。
+
+有关[索引](https://docs.mongodb.com/manual/applications/indexes/)以及[分析查询性能的](https://docs.mongodb.com/manual/tutorial/analyze-query-plan/)详细信息，请参阅[索引策略](https://docs.mongodb.com/manual/applications/indexes/)。此外，MongoDB [数据库分析器（database profiler）](https://docs.mongodb.com/manual/tutorial/manage-the-database-profiler/)可以帮助定位低效的查询。
+
+## 大量的集合
+
+在某些情况下，你可以选择将信息存储在多个不同的集合中，而不是单个集合。通常情况下，大量的集合并不会导致性能损失，并且可能对性能很有帮助。对于高吞吐量的批处理，不同的集合非常重要。在使用具有大量集合的模型时，请考虑以下行为：
+
+* 每个集合都有几千字节的最小开销
+
+* 每个索引（包括`_id`索引），都需要至少8kb的数据空间
+
+* 每个数据库都有一个命名空间文件（namespace file，比如<database>.ns），用来存储该数据库所有的元数据，并且每个索引和集合在命名空间中有自己的条目。MongoDB对命名空间的大小有限制（[更多参考](https://docs.mongodb.com/manual/reference/limits/#Size-of-Namespace-File)）
+
+* 使用`mmapv1`存储引擎的MongoDB 对命名空间的[数量有限制](https://docs.mongodb.com/manual/reference/limits/#Number-of-Namespaces)。如果你想知道当前当前命名空间的数量，可以在MongoDB shell中运行如下命令：
+
+  ```javascript
+  db.systems.namespaces.count()
+  ```
+
+  命名空间数量的限制取决于`<database>.ns` 大小。命名空间文件默认为16 MB。如果要更改新命名空间的大小，可以在启动服务增加选项：`--nssize <new size MB>`. 对于现有的数据库，以`--nssize`选项启动后，在MongoDB shell执行`db.repairDatabase()`[命令](https://docs.mongodb.com/manual/reference/command/repairDatabase/#dbcmd.repairDatabase)。
+
+## 集合包含大量的小文档
+
+出于性能原因，如果您的集合包含大量小文档，则应考虑嵌入。如果您可以通过某种逻辑关系对这些小文档进行分组，并且经常通过此分组检索这些文档，则可以考虑将小文档“汇总”为包含嵌入文档数组的较大文档。
+
+将这些小文档“汇总”为逻辑分组意味着在检索一组文档，查询是顺序读取和较少的随机磁盘访问。此外，“汇总”文档并将公共字段移动到较大的文档有益于这些字段的索引。公共字段的拷贝
+
+## 小文档的存储优化
+
+## 数据生命周期管理
+
 ## 文档的增长和MMAPv1
 
 某些更新，比如往数组插入元素，或者增加字段，会增加文件的大小。
@@ -95,12 +161,19 @@
 
 * [Thinking in Documents Part 1 (Blog Post)](https://www.mongodb.com/blog/post/thinking-documents-part-1?jmp=docs)
 
-# 数据建模相关概念
+# 操作因素和数据模型
 
-## 数据模型设计
+在进行应用数据建模时，要考虑到影响MongoDB性能的各种操作因素。例如，不同的数据模型可以提供更高效的查询，增加插入和更新操作的吞吐量，或更高效地分发活动给分片集群。
 
-有效的数据模型应满足应用的需求。文档结构的设计关键是使用嵌入式（embed），还是引用（references）的选择。
+开发数据模型时，请结合以下事项分析自己应用的读写操作：
 
-####嵌入式数据模型
+##原子性
 
-#### 
+MongoDB中的写操作在单个文档上是原子性的，即使该操作修改了单个文档中的多个子文档。比如`update_many()`方法，对每个文档的修改都是原子性的，但整个操作不是原子性的。
+
+### 嵌入数据模型
+
+嵌入式数据模型将所有相关数据结合在单个文档中，这有助于原子性操作
+
+### 多文档事务
+
