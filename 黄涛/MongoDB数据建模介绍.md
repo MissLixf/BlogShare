@@ -45,9 +45,7 @@
 
 通常，嵌入式能为读操作提供更好的性能，以及在单次数据库操作中请求和检索关联数据的能力。这也使得在单个原子性写操作中更新关联的数据成为可能。要访问嵌入的子文档，使用`.`操作即可。
 
-#### 嵌入式数据模型和文档大小限制
-
-MongoDB中的文档大小不得超过BSON文档尺寸的最大值，也就是16MB。
+包含子文档的文档大小也不得超过BSON文档尺寸的最大值，也就是16MB。
 
 ### 引用
 
@@ -75,8 +73,8 @@ MongoDB中的文档大小不得超过BSON文档尺寸的最大值，也就是16M
 通常在以下情况下使用标准的数据模型：
 
 * 嵌入式会导致数据冗余，但又不能提供足够的性能优势时
-* 描述更复杂的多对的关系时
-* 模拟大型的分层数据集时
+* 描述更复杂的多对多的关系时
+* 模拟大型的分层数据集时（树形结构）
 
 引用比起嵌入式能提供更大的灵活性。但是客户端应用必须发起后续查询来解析引用，也就是说，规范化的数据模型需要更多的查询请求。
 
@@ -399,7 +397,322 @@ MongoDB使用分片键（shard key）在分片集合中分发数据和应用程�
 }
 ```
 
-## 模型树结构
+## 树结构模式
 
+### 父节点引用模式
 
+通过在子节点中存储对父节点的引用，来描述一种树状结构。如下图：
+
+![](https://docs.mongodb.com/manual/_images/data-model-tree.bakedsvg.svg)
+
+下面通过`parent`字段，引用父节点的`_id`，对以上数结构建模：
+
+```javascript
+db.categories.insert( { _id: "MongoDB", parent: "Databases" } )
+db.categories.insert( { _id: "dbm", parent: "Databases" } )
+db.categories.insert( { _id: "Databases", parent: "Programming" } )
+db.categories.insert( { _id: "Languages", parent: "Programming" } )
+db.categories.insert( { _id: "Programming", parent: "Books" } )
+db.categories.insert( { _id: "Books", parent: null } )
+```
+
+* 检索某个节点的的父节点：
+
+```javascript
+db.categories.findone({_id: "MongoDB"}).parent
+```
+
+* 你可以在`parent`字段上创建索引，以提高父节点的搜索速度：
+
+```javascript
+db.categories.createIndex({parent: 1})
+```
+
+* 查找`Databases`节点的所有直接子节点：
+
+```javascript
+db.categories.find({parent: "Databases"})
+```
+
+* 如果要检索子树，请参阅[`$graphLookup`](https://docs.mongodb.com/manual/reference/operator/aggregation/graphLookup/#pipe._S_graphLookup)
+
+### 子节点引用模式
+
+通过在父节点中存储对子节点的引用，也能描述同样的树状结构：
+
+![](https://docs.mongodb.com/manual/_images/data-model-tree.bakedsvg.svg)
+
+下面通过`children`数组字段，引用子节点的`_id`，对以上树结构建模：
+
+```javascript
+db.categories.insert( { _id: "MongoDB", children: [] } )
+db.categories.insert( { _id: "dbm", children: [] } )
+db.categories.insert( { _id: "Databases", children: [ "MongoDB", "dbm" ] } )
+db.categories.insert( { _id: "Languages", children: [] } )
+db.categories.insert( { _id: "Programming", children: [ "Databases", "Languages" ] } )
+db.categories.insert( { _id: "Books", children: [ "Programming" ] } )
+```
+
+* 检索某个节点的直接子节点
+
+```javascript
+db.categories.findOne({_id: "Databases"}).children
+```
+
+* 在`children`字段上建索引，以提高子节点的搜索速度
+
+```javascript
+db.categories.createIndex({children: 1})
+```
+
+* 查找`MongoDB`节点的所有父节点及其兄弟节点
+
+```javascript
+db.categories.find({children: "MongoDB"})
+```
+
+只要不需要对子树进行操作，子节点引用模式为树型存储提供了一个合适方案。该模式也适用于一个节点有多个父节点的情况（上图倒过来）。
+
+### 祖先数组模式
+
+通过在子节点中引用父节点，以及祖先数组(太爷爷，爷爷，父节点，......），来描述树型结构：
+
+![](https://docs.mongodb.com/manual/_images/data-model-tree.bakedsvg.svg)
+
+下面通过祖先数组，进行树型结构建模。除了`ancestors`数组字段，文档也通过`parent`字段存储对对直接父节点的引用。
+
+```javascript
+db.categories.insert( { _id: "MongoDB", ancestors: [ "Books", "Programming", "Databases" ], parent: "Databases" } )
+db.categories.insert( { _id: "dbm", ancestors: [ "Books", "Programming", "Databases" ], parent: "Databases" } )
+db.categories.insert( { _id: "Databases", ancestors: [ "Books", "Programming" ], parent: "Programming" } )
+db.categories.insert( { _id: "Languages", ancestors: [ "Books", "Programming" ], parent: "Programming" } )
+db.categories.insert( { _id: "Programming", ancestors: [ "Books" ], parent: "Books" } )
+db.categories.insert( { _id: "Books", ancestors: [ ], parent: null } )
+```
+
+* 查询某个节点的祖先
+
+  ```javascript
+  db.categories.findOne({_id: "MongoDB"}).ancestors
+  ```
+
+* 为`ancestors`字段创建索引，以加快祖先节点的查询速度
+
+  ```javascript
+  db.categories.createIndex({ancestors: 1})
+  ```
+
+* 查询某个节点的所有后代节点
+
+  ```javascript
+  db.categories.find({ancestors: "Programming"})
+  ```
+
+祖先数组模式通过为祖先字段创建索引，为查找某个节点的后代和祖先提供了一种快速高效的解决方案。这使得该模式成为使用子树的不错选择。
+
+祖先数组模式比接下来要讲的物化路径模式稍慢，但是更易用。
+
+### 物化路径模式
+
+通过存储文档间完整的关系路径，来描述树型结构：
+
+![](https://docs.mongodb.com/manual/_images/data-model-tree.bakedsvg.svg)
+
+下面通过在`path`字段中存储路径的字符串，来进行树型结构建模，路径之间以`，`逗号作为分隔符：
+
+```javascript
+db.categories.insert( { _id: "Books", path: null } )
+db.categories.insert( { _id: "Programming", path: ",Books," } )
+db.categories.insert( { _id: "Databases", path: ",Books,Programming," } )
+db.categories.insert( { _id: "Languages", path: ",Books,Programming," } )
+db.categories.insert( { _id: "MongoDB", path: ",Books,Programming,Databases," } )
+db.categories.insert( { _id: "dbm", path: ",Books,Programming,Databases," } )
+```
+
+* 检索整个树，并按`path`字段排序：
+
+  ```javascript
+  db.categories.find().sort({path: 1})
+  ```
+
+* 对`path`字段使用正则来查找某个节点的所有后代：
+
+  ```javascript
+  db.categories.find({path: /,Programming,/})
+  ```
+
+* 你也可以检索最高层`Books`的所有后代：
+
+  ```javascript
+  db.categories.find{path: /^,Books,/}
+  ```
+
+* 为`path`字段创建索引：
+
+  ```javascript
+  db.categories.createIndex({path: 1})
+  ```
+
+  这个索引可能提高某些查询的性能：
+
+  * 从根路径开始的子树查询将获得显著性能提升，比如：`/^,Books,/`或者`/^,Books,Programming,/`
+  * 未从根路径开始的子树查询，如`/,Programming,/`，将检查整个索引。这种情况下，如果索引显著小于整个集合，也会获得一些性能提升。
+
+### 嵌套集模式
+
+该模式适合静态的树结构，暂不讨论。
+
+## 特定应用模式
+
+### 原子操作
+
+如之前所述，在MongoDB中，写操作在单个文档上保证原子性。即便MongoDB从4.0开始支持多事务，但在很多情况下，采用非标准的数据模型（子文档），仍然是最佳选择。因此对于那些必须一起更新的字段，可以考虑将其嵌入一个文档中，以保证原子性操作。
+
+比如，书籍的库存和结账信息应该是同步的，因此在同一文档中嵌入`available`和`checkout`字段可以确保对这两个字段的原子性更新：
+
+```javascript
+{
+    _id: 123456789,
+    title: "MongoDB: The Definitive Guide",
+    author: [ "Kristina Chodorow", "Mike Dirolf" ],
+    published_date: ISODate("2010-09-24"),
+    pages: 216,
+    language: "English",
+    publisher_id: "oreilly",
+    available: 3,
+    checkout: [ { by: "joe", date: ISODate("2012-10-15") } ]
+}
+```
+
+如果有新的结账信息要更新，像下面这样就可以了：
+
+```javascript
+db.books.updateOne({
+    {_id: 123456789, available: {$gt: 0}},
+    {
+        $inc: {available: -1},
+        $push: {checkout: {by: "abc", date: new Date()}}
+    }
+})
+```
+
+### 关键字搜索
+
+如果你的应用需要对包含文本内容的字段进行查询，你可以进行完全匹配，或者使用正则进行匹配。然后，这种方式在很多时候无法满足要求。
+
+下面提供一种支持关键字搜索的方法：将要用的关键字存储到文档的一个数组字段中，并创建为该字段创建多键索引。
+
+比如，搜索书籍时：
+
+````javascript
+{ title : "Moby-Dick" ,
+  author : "Herman Melville" ,
+  published : 1851 ,
+  ISBN : 0451526996 ,
+  topics : [ "whaling" , "allegory" , "revenge" , "American" ,  // 将要搜索的关键词放在topic数组中
+    "novel" , "nautical" , "voyage" , "Cape Cod" ]
+}
+````
+
+对`topic`数组字段创建多键索引：
+
+```javascript
+db.books.createIndex({topics: 1})
+```
+
+多键索引将会为数组中的每个关键字创建单独的索引条目，然后你就可以依据关键字进行查询：
+
+```javascript
+db.books.findOne({topic: "voyage"}, {title: 1})  // 依据voyage关键字查询书籍，并只返回title字段
+```
+
+如果数组中包含大量关键字，比如成百上千个，将导致插入时更大的索引开销。
+
+#### 关键字索引的局限
+
+比起全文产品，关键字索引在以下方面存在不足或者不适用：
+
+* 截取。不能解析根或相关单词关键字。
+* 同义词。只能由应用层为同义词或相关查询提供支持。
+* 排名。不提供加权结果的方法。
+* 异步索引。MongoDB同步构建索引，这意味着索引始终是最新的，然后异步批量索引有些时候可能更高效。
+
+关键字索引的
+
+### 货币数据
+
+暂不讨论
+
+### 时间数据
+
+MongoDB默认以UTC格式存储时间，并将任何本地时间表示转化为这种形式。时区信息由应用程序保存，并据此计算本地时间。
+
+例如，你可以将当前时间，以及当前客户端与UTC的偏移量都存下来：
+
+```javascript
+var now = new Date();
+var offset = now.getTimezoneOffset(); // -480, 比UTC快480分钟
+db.data.save({
+    date: now,
+    offset: offset
+});
+```
+
+重建本地原始时间：
+
+```javascript
+var record = db.data.findOne();
+var localNow = new Date(record.date.getTime() - (record.offset * 60000))
+```
+
+# 数据建模引用
+
+通常来说，采用非标准的数据模型（子文档）是最佳选择。但是，在某些情况下，将关联的信息分开存储到不同的集合或者数据库中也是合理的。
+
+> 注意：MongoDB 3.2 引入了`$lookup`管道，以便对同一数据库内的集合进行左外连接操作（主动连表）。更多信息和示例，请参阅[`$lookup`](https://docs.mongodb.com/manual/reference/operator/aggregation/lookup/#pipe._S_lookup)
+>
+> 从3.4开始，还可以使用`$graphLookup`管道连接集合执行递归搜索。更多信息和示例，请参阅 [`$graphLookup`](https://docs.mongodb.com/manual/reference/operator/aggregation/graphLookup/#pipe._S_graphLookup)。
+
+在`$lookup`和`$graphLookup`出现前，你可以采用本部分所介绍的方案：
+
+## 手动引用（Manual references）
+
+在一个文档中保存另一个文档的`_id`字段作为引用。然后应用程序在需要时执行第二次查询来获取关联数据。大多数情况下，手动引用简单且够用。
+
+但是，手动引用无法传达数据库和集合的名字，所以，如果一个集合内的文档与多个其它集合的文档关联，你可能需要考虑使用DBRefs。
+
+## DBRefs
+
+一个文档通过另一个文档的`_id`字段，集合名，以及（可选的）数据库名进行引用。通过包含这些名称，DBRefs使得跨集合的文档链接更容易。
+
+如果要解析DBRefs，应用程序必须执行额外的查询已获得被引用的文档。很多驱动提供了辅助方法来自动执行DBRef查询，但不会自动将DBRefs解析为文档。
+
+下面我们看看如何进行DBRef引用：
+
+```javascript
+// users集合
+{
+    "_id": 12345678
+}
+
+// post集合
+{
+    "_id": 87654321,
+    "title": "a beautiful poem",
+    "body": "asdif asd fiasdf jasdlf idf jdjifj idfj idlllle iidjfjjfi asssdf",
+    "author": {
+           "$ref": "users"，  // 被引用文档所在的集合名
+           "$id": "12345678",  // 被引用文档的_id值
+           "$db": "web-application"  // （可选）被引用文档所在的数据库
+        }
+}
+```
+
+DBRef格式如下：
+
+```json
+{ "$ref" : <value>, "$id" : <value>, "$db" : <value> }  // 注意，必须按照这个字段顺序
+```
+
+最后，除非你有令人信服的理由使用DBRefs，否则请选择手动引用。
 
