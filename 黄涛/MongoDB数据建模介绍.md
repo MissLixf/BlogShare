@@ -49,10 +49,6 @@
 
 MongoDB中的文档大小不得超过BSON文档尺寸的最大值，也就是16MB。
 
-#### 嵌入式文档模型和已废弃的MMAPv1
-
-在已创建的文档中嵌入数据会导致文档的增长。使用已弃用的MMAPv1存储引擎，文档增长会影响写入性能并导致数据碎片化。从版本3.0.0开始，MongoDB使用Power of 2 Sized Allocations取代MMAPv1的默认分配策略，以最大限度地减少数据碎片的可能性。有关详细信息，请参阅 [Power of 2 Sized Allocations](https://docs.mongodb.com/manual/core/mmapv1/#power-of-2-allocation) 。
-
 ### 引用
 
 通过文档间的链接（或引用），引用用来存储着数据间的关系。个人理解，类似于SQL中的外键。应用可以解析这些引用来访问相关的数据。广义上来讲，这些是标准的数据模型。
@@ -187,29 +183,223 @@ MongoDB使用分片键（shard key）在分片集合中分发数据和应用程�
 
 ## 数据生命周期管理
 
+数据建模时应考虑数据的生命周期管理。
+
+有[生存时间或TTL特性](https://docs.mongodb.com/manual/tutorial/expire-data/)的集合在一段时间后，其文档会过期。如果您的应用需要某些数据在数据库中保留一段有限的时间，请考虑使用TTL特性。
+
+此外，如果您的应用仅使用最近插入的文档，请考虑[上限集合（Capped Collections）](https://docs.mongodb.com/manual/core/capped-collections/)，可对插入的文档进行先入先出的管理，有效地支持插入和读取基于插入顺序的文档操作。
+
 ## 文档的增长和MMAPv1
 
 某些更新，比如往数组插入元素，或者增加字段，会增加文件的大小。
 
 对于已经弃用的MMAPv1文档引擎，如果文档大小超出了该文档的分配空间，MongoDB会在磁盘上重新分配该文档。使用废弃的MMAPv1引擎时，出于对文档增长的考虑，将会影响对标准化或非标准化数据的决策。
 
+在已创建的文档中嵌入数据会导致文档的增长。使用已弃用的MMAPv1存储引擎，文档增长会影响写入性能并导致数据碎片化。从版本3.0.0开始，MongoDB使用Power of 2 Sized Allocations取代MMAPv1的默认分配策略，以最大限度地减少数据碎片的可能性。有关详细信息，请参阅 [Power of 2 Sized Allocations](https://docs.mongodb.com/manual/core/mmapv1/#power-of-2-allocation) 。
+
 ## 其他参考资源
 
 * [Thinking in Documents Part 1 (Blog Post)](https://www.mongodb.com/blog/post/thinking-documents-part-1?jmp=docs)
 
-# 操作因素和数据模型
+# 数据模型示例和模式
 
-在进行应用数据建模时，要考虑到影响MongoDB性能的各种操作因素。例如，不同的数据模型可以提供更高效的查询，增加插入和更新操作的吞吐量，或更高效地分发活动给分片集群。
+## 文档间的模型关系
 
-开发数据模型时，请结合以下事项分析自己应用的读写操作：
+###  基于子文档的一对一
 
-##原子性
+使用子文档来描述关联数据间的一对一关系。下面以顾客和地址为例子，每个顾客对应一个地址。
 
-MongoDB中的写操作在单个文档上是原子性的，即使该操作修改了单个文档中的多个子文档。比如`update_many()`方法，对每个文档的修改都是原子性的，但整个操作不是原子性的。
+如果用标准的数据模型，address文档包含对customer文档的引用：
 
-### 嵌入数据模型
+```json
+// customer 文档
+{
+   _id: "joe",
+   name: "Joe Bookreader"
+}
 
-嵌入式数据模型将所有相关数据结合在单个文档中，这有助于原子性操作
+// address 文档
+{
+   customer_id: "joe", 
+   street: "123 Fake Street",
+   city: "Faketon",
+   state: "MA",
+   zip: "12345"
+}
+```
 
-### 多文档事务
+如果要经常通过customer信息来获取address信息，在引用的情况下，你的应用需要发出多个查询来解析引用。但是如果使用子文档，应用通过一次查询就可以检索到所有信息：
+
+```json
+{
+   _id: "joe",
+   name: "Joe Bookreader",
+   address: { // address 作为子文档
+              street: "123 Fake Street",
+              city: "Faketon",
+              state: "MA",
+              zip: "12345"
+            }
+}
+```
+
+这个示例说明了，如果要在一个数据实体的上下文中查看另一个数据实体，子文档对于引用的优势。
+
+### 基于子文档的一对多
+
+使用子文档来描述关联数据间的一对多关系。下面以顾客和地址为例子，每个顾客对应多个地址。
+
+使用标准数据模型，多个address文档包含对customer文档的引用：
+
+```json
+{
+   _id: "joe",
+   name: "Joe Bookreader"
+}
+
+{
+   customer_id: "joe",
+   street: "123 Fake Street",
+   city: "Faketon",
+   state: "MA",
+   zip: "12345"
+}
+
+{
+   customer_id: "joe",
+   street: "1 Some Other Street",
+   city: "Boston",
+   state: "MA",
+   zip: "12345"
+}
+```
+
+如果要经常通过customer信息来获取其address信息，在引用的情况下，你的应用需要发出多个查询来解析引用。更好的选择是把address数据实体嵌入customer的数组字段中，这样应用通过一次查询就可以检索到所有信息：
+
+```json
+{
+   _id: "joe",
+   name: "Joe Bookreader",
+   addresses: [
+                {
+                  street: "123 Fake Street",
+                  city: "Faketon",
+                  state: "MA",
+                  zip: "12345"
+                },
+                {
+                  street: "1 Some Other Street",
+                  city: "Boston",
+                  state: "MA",
+                  zip: "12345"
+                }
+              ]
+ }
+```
+
+### 基于引用的一对多
+
+使用文档间的引用来描述关联数据间的一对多关系。下面以出版社和书为例子，每个出版社可以对应多本书。
+
+如果使用子文档，将publisher文档嵌入book文档中，会导致publisher信息重复：
+
+```json
+{
+   title: "MongoDB: The Definitive Guide",
+   author: [ "Kristina Chodorow", "Mike Dirolf" ],
+   published_date: ISODate("2010-09-24"),
+   pages: 216,
+   language: "English",
+   publisher: {  // publisher
+              name: "O'Reilly Media",
+              founded: 1980,
+              location: "CA"
+            }
+}
+
+{
+   title: "50 Tips and Tricks for MongoDB Developer",
+   author: "Kristina Chodorow",
+   published_date: ISODate("2011-05-06"),
+   pages: 68,
+   language: "English",
+   publisher: {  // publisher 重复
+              name: "O'Reilly Media",
+              founded: 1980,
+              location: "CA"
+            }
+
+}
+```
+
+为了避免这种重复，可以使用引用，将publisher的信息单独保存到一个集合中。
+
+使用引用时，关系的增长决定在哪边存储引用关系。如果每个publisher发布的book很少且有限，那么在publisher中包含对book的引用是合适的。但是，如果publisher发布的book数量巨大且没有限制，这样的数据模型将导致不断地变化，数组不断增长，就像下面这样：
+
+```json
+{
+   name: "O'Reilly Media",
+   founded: 1980,
+   location: "CA",
+   books: [123456789, 234567890, ...]  // 通过数组字段，存储对book的引用，但是数组将不断变大
+
+}
+
+{
+    _id: 123456789,
+    title: "MongoDB: The Definitive Guide",
+    author: [ "Kristina Chodorow", "Mike Dirolf" ],
+    published_date: ISODate("2010-09-24"),
+    pages: 216,
+    language: "English"
+}
+
+{
+   _id: 234567890,
+   title: "50 Tips and Tricks for MongoDB Developer",
+   author: "Kristina Chodorow",
+   published_date: ISODate("2011-05-06"),
+   pages: 68,
+   language: "English"
+}
+```
+
+为了避免上述这种情况，应当在book中包含对publisher的引用：
+
+```json
+{
+   _id: "oreilly",
+   name: "O'Reilly Media",
+   founded: 1980,
+   location: "CA"
+}
+
+{
+   _id: 123456789,
+   title: "MongoDB: The Definitive Guide",
+   author: [ "Kristina Chodorow", "Mike Dirolf" ],
+   published_date: ISODate("2010-09-24"),
+   pages: 216,
+   language: "English",
+
+   publisher_id: "oreilly"  // book中引用publisher
+
+}
+
+{
+   _id: 234567890,
+   title: "50 Tips and Tricks for MongoDB Developer",
+   author: "Kristina Chodorow",
+   published_date: ISODate("2011-05-06"),
+   pages: 68,
+   language: "English",
+
+   publisher_id: "oreilly" // book中引用publisher
+
+}
+```
+
+## 模型树结构
+
+
 
