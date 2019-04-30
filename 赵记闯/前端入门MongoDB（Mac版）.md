@@ -16,7 +16,7 @@ http://brew/sh/
 * cd /usr/local/bin; 进入该文件夹
 * sudo mongod --dbpach=/data/db; 启动mongodb服务端，并指定数据存储路径
     > sudo 越过安全权限限制  
-  mongod 启动服务端时 默认寻找根目录下的`/data/db`,所以不用每次都指定dbpath  
+    mongod 启动服务端时 默认寻找根目录下的`/data/db`,所以不用每次都指定dbpath  
 
 此时启动的是服务端，所以我们还需要启动客户端来操作数据库。此时mongod服务正在启动无法输入命令，在不创建新终端窗口的情况下可以采用以下命令解决该问题：
 - sudo mongod$
@@ -223,7 +223,7 @@ print(Date.now() - startTimer)
 - 
 ### 分页
 - db.user.find().limit(pageSize).skip((currentPage - 1) * pageSize)
-```
+```javascript
 // 分页， 限制数量
 db.user.find().limit(5)
 let pageSize = 10
