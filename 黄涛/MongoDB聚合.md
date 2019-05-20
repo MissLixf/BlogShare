@@ -12,8 +12,6 @@ MongoDB的聚合基于管道的概念。文档进入一个多段管道，被转�
 
 ![](https://docs.mongodb.com/manual/_images/aggregation-pipeline.bakedsvg.svg)
 
-### 阶段运算符
-
 MongoDB提供了`db.collection.aggregate()`和`db.aggreate()`方法用于管道聚合操作。这两个方法接收阶段运算符的数组，然后文档依次通过这些阶段：
 
 ```javascript
@@ -25,6 +23,14 @@ db.aggregate( [ { <stage1> }, {<stage2>}, ... ] )
 ```
 
 关于可用的阶段运算符，参阅的[聚合管道阶段运算符](https://docs.mongodb.com/manual/reference/operator/aggregation-pipeline/#aggregation-pipeline-operator-reference)
+
+### 管道表达式
+
+某些管道阶段将管道表达式作为 运算数。
+
+### 聚合管道运算符
+
+<https://docs.mongodb.com/manual/reference/operator/aggregation/>
 
 ### 限制
 

@@ -415,8 +415,6 @@ cursor = db.inventory.find({'status': {'$in': ['A', 'D']}})
 SELECT * FROM inventory WHERE status in ("A", "D")
 ```
 
-查询运算符一览，可查看官方文档：https://docs.mongodb.com/manual/reference/operator/query/#projection-operators
-
 ### AND查询
 
 复合查询可以指定多个字段。下面的示例从inventory集合中查询所有status等于A，并且qty小于30的文档：
@@ -2100,9 +2098,7 @@ MongoDB支持通过`$text`运算符对文本字段作索引，以方便文本搜
 |     `$inc`     |        增加某字段的值        |
 |    `$push`     |    为数组字段添加新的元素    |
 
-# mongoengine
-
-待完善。
+查询运算符一览，可查看官方文档：https://docs.mongodb.com/manual/reference/operator/query/#projection-operators
 
 
 
