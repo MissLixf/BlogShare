@@ -153,5 +153,11 @@
   """
   ```
 
+* 往`fields.DateTimeField`字段中写入utc时间：
+
+  ```python
+  datetime.datetime.utcnow()
+  ```
+
   
 
