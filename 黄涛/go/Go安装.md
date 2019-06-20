@@ -28,4 +28,21 @@
       ```
 
     * 执行`go install`，将会安装二进制文件（`hello.exe`）到工作目录的`bin`目录下。
+
       * 执行`go clean -i `将会从hello目录和bin目录清除`hello.exe`二进制文件
+
+* mac下快速安装：
+
+  * 直接下载官网的安装包安装即可。安装包会自动将Go安装到`usr/local/go`，并且设置`/usr/local/go/bin`目录到`PATH`环境变量。然后重新打开终端就生效了。
+
+  * 设置GOPATH：
+    `GOPATH`环境变量用来指定工作目录的位置。如果没有设置，那么在Unix系统上，默认是`$HOME/go`。所有`go get`命令拉取的项目，都会被放到这个工作目录下。你可以自定义这个目录，但是千万不能是Go的安装路径。
+    自定义工作目录的方法：
+
+    * 编辑`~/.bash_profile`，添加一行：
+
+      ```
+      export GOPATH=$HOME/go
+      ```
+
+    * 保存后，执行`source ~/.bash_profile`生效即可
