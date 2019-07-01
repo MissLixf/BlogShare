@@ -2100,7 +2100,29 @@ MongoDB支持通过`$text`运算符对文本字段作索引，以方便文本搜
 
 查询运算符一览，可查看官方文档：https://docs.mongodb.com/manual/reference/operator/query/#projection-operators
 
+## 其他
 
+* 批量插入child_qty字段：
+
+  ```js
+  db.getCollection('exercise').updateMany({'model': 5}, {'$set': {'child_qty': 0}})
+  ```
+
+  插入字段默认是double类型，很奇怪。
+
+* 批量更改某字段类型：double => int
+
+  ```js
+  db.getCollection('exercise').find({'child_qty': {$type: 'double'}}).forEach(function(x){x.child_qty=NumberInt(x.child_qty);db.getCollection('exercise').save(x)})
+  ```
+
+* 批量更新child_qty字段的值
+
+  ```js
+  db.getCollection('exercise').find({'model': 5}).forEach(function(x){x.child_qty=NumberInt(x.children.length);db.getCollection('exercise').save(x)})
+  ```
+
+  
 
 
 
