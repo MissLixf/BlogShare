@@ -133,7 +133,7 @@ GET twitter/_search
 
 * `analyzer` 指定分词器
 * [`minimum_should_match`](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-minimum-should-match.html)，没看懂
-* `lenient` ：默认`false`，是否忽略由数据类型错误导致的异常，比如使用文本查询字符串来查询数字字段
+* `lenient` ：异常处理，是否忽略由数据类型错误导致的异常，默认`false`，比如使用文本查询字符串来查询数字字段
 * `zero_terms_query`：零项查询，指定查询词条为空时的行为（比如指定的分词器移除了所有词条），其值为：
   * `none`，相当于`match_none`，默认值
   * `all` ，相当于`match_all`
@@ -172,9 +172,10 @@ PUT /{index}
 }
 ```
 
-说明：同义词词库的位置是相对于`config`目录的相对地址。
+说明：同义词词库的位置是相对于`config`目录的相对地址。另外以下参数也是可用的：
 
-再看一个示例：
+* `expand` 默认为`true`
+* `leninet` 默认为`false`，是否忽略同义词配置的解析异常，记住，如果设置为`true`，只要那些无法被解析到同义词规则会被忽略。如下示例：
 
 ```json
 PUT /{test_index}
@@ -196,7 +197,7 @@ PUT /{test_index}
                     "synonym_graph" : {
                         "type" : "synonym_graph",
                         "lenient": true,
-                        "synonyms" : ["foo, bar => baz"]
+                        "synonyms" : ["foo, bar => baz"]  // 手动定义同义词映射
                     }
                 }
             }
@@ -205,4 +206,4 @@ PUT /{test_index}
 }
 ```
 
-说明：bar在自定义的my_stop的filter中被取出，但是在synonym_graph的filter中，添加了foo => baz. 但是如果mapping中添加
+说明：bar在自定义的my_stop的filter中被剔除，但是在synonym_graph的filter中，foo => baz仍然被添加成功。但如果添加的是"foo, baz => bar", 那么什么也不会被添加到同义词列表。这时因为映射到目标单词"bar"本身作为停用词已被剔除。相似的，如果映射是"bar, foo, baz"并且`expand`设置为`false`，那么不会添加任何同义词映射，因为当`expand`为`false`时，目标映射是第一个单词，也就是"bar"。但是如果`expand=true`，那么映射将会添加为"foo, baz => foo, baz"，即所有词相互映射，除了停用词。
