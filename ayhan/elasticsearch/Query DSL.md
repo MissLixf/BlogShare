@@ -140,253 +140,30 @@ GET twitter/_search
 * `cutoff frequency` ：指定文档高低频的分界线
 * `synonyms` 对于同义词定义：`ny, new york`，相当于`ny OR (new york)`
 
-## 同义词图过滤器 Synonym Graph Token Filter
+### match phrase
 
-`synonym_graph`词条过滤器（token filter）用于处理同义词。
-
-注意：该过滤器仅适用于作为搜索分词器的一部分。如果想在索引期间应用同义词，需要使用标准的[同义词过滤器](https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-synonym-tokenfilter.html)
-
-同义词可以使用配置文件指定，如下：
+短语匹配，示例：
 
 ```json
-PUT /{index}
-{
-    "settings": {
-        "index" : {
-            "analysis" : {
-                "analyzer" : {
-                    "search_synonyms" : { // 自定义分词器名字
-                        "tokenizer" : "whitespace",
-                        "filter" : ["graph_synonyms"]  // 使用自定义filter
-                    }
-                },
-                "filter" : {
-                    "graph_synonyms" : {
-                        "type" : "synonym_graph",  // 指定类型为同义词图
-                        "synonyms_path" : "analysis/synonym.txt"  // 指定同义词词库位置
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-说明：同义词词库的位置是相对于`config`目录的相对地址。另外以下参数也是可用的：
-
-* `expand` 默认为`true`
-* `leninet` 默认为`false`，是否忽略同义词配置的解析异常，记住，如果设置为`true`，只要那些无法被解析到同义词规则会被忽略。如下示例：
-
-```json
-PUT /{test_index}
-{
-    "settings": {
-        "index" : {
-            "analysis" : {
-                "analyzer" : {
-                    "synonym" : {
-                        "tokenizer" : "standard",
-                        "filter" : ["my_stop", "synonym_graph"]
-                    }
-                },
-                "filter" : {
-                    "my_stop": {
-                        "type" : "stop",
-                        "stopwords": ["bar"]
-                    },
-                    "synonym_graph" : {
-                        "type" : "synonym_graph",
-                        "lenient": true,
-                        "synonyms" : ["foo, bar => baz"]  // 手动定义同义词映射
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-说明：bar在自定义的my_stop的filter中被剔除，但是在synonym_graph的filter中，foo => baz仍然被添加成功。但如果添加的是"foo, baz => bar", 那么什么也不会被添加到同义词列表。这时因为映射到目标单词"bar"本身作为停用词已被剔除。相似的，如果映射是"bar, foo, baz"并且`expand`设置为`false`，那么不会添加任何同义词映射，因为当`expand`为`false`时，目标映射是第一个单词，也就是"bar"。但是如果`expand=true`，那么映射将会添加为"foo, baz => foo, baz"，即所有词相互映射，除了停用词。
-
-同义词配置文件如下：
-
-```tcl
-# 空行和#号开头的都是注释
-
-# 近义词以 => 映射，这种映射会忽略模式中的 expand 参数
-# 匹配到"=>"左侧的词条后，被替换为"=>"右侧的词条。
-i-pod, i pod => ipod,
-sea biscuit, sea biscit => seabiscuit
-
-# 近义词以逗号分隔，映射行为由模式中的expand参数决定。如此同样的近义词文件，可以用于不同的策略
-ipod, i-pod, i pod
-foozball , foosball
-universe , cosmos
-lol, laughing out loud
-
-# 当expand==true, "ipod, i-pod, i pod" 等价于:
-ipod, i-pod, i pod => ipod, i-pod, i pod
-# 当expand==false, "ipod, i-pod, i pod" 仅映射第一个单词， 等价于:
-ipod, i-pod, i pod => ipod
-
-# 多个同义词映射将会合并
-foo => foo bar
-foo => baz
-# 等价于：
-foo => foo bar, baz
-```
-
-虽然可以直接在filter中使用`synonyms`定义同义词，比如：
-
-```json
-PUT /test_index
-{
-    "settings": {
-        "index" : {
-            "analysis" : {
-                "filter" : {
-                    "synonym" : {
-                        "type" : "synonym_graph",
-                        "synonyms" : [ // 直接定义
-                            "lol, laughing out loud",
-                            "universe, cosmos"
-                        ]
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-但是对于大型的同义词集合，还是推荐使用`synonyms_path`参数在文件中定义。
-
-### 测试
-
-定义mapping
-
-```json
-PUT article
-{
-  "settings": {
-    "index": {
-      "analysis": {
-        "analyzer": {
-          "my_analyzer": {
-            "tokenizer": "ik_max_word",
-            "filter": ["my_synonyms"]
-          }
-        },
-        "filter": {
-          "my_synonyms": {
-            "type": "synonym_graph",
-            "synonyms_path": "analysis/synonyms.txt"
-          }
-        },
-        "search_analyzer": "ik_smart"
-      }
-    }
-  }
-}
-```
-
-在ES的`config/analysis`目录下新建`synonyms.txt`文件，内容如下：
-
-```tcl
-北京大学, 北大
-```
-
-索引一篇文档：
-
-```json
-PUT article/_doc/1
-{
-  "content": "北京大学今年考研一飞冲天"
-}
-```
-
-试着搜索：
-
-```json
-GET article/_search
+GET twitter/_search
 {
   "query": {
-    "match": {
-      "content": {
-        "query": "北大"
-      }
+    "match_phrase": {
+      "message": "huawei mate pro"  // 查询message字段包含huawei mate pro的文档
     }
   }
 }
 ```
 
-搜索结果：
+类似match查询，短语匹配首先也会将查询字符串解析为词条列表，然后对这些词条进行搜索。但是只保留同时包含所有词条，且位置顺序与搜索词条一致，中间不夹杂其他单词的文档。
 
-```json
-{
-  "took" : 0,
-  "timed_out" : false,
-  "_shards" : {
-    "total" : 1,
-    "successful" : 1,
-    "skipped" : 0,
-    "failed" : 0
-  },
-  "hits" : {
-    "total" : {
-      "value" : 1,
-      "relation" : "eq"
-    },
-    "max_score" : 0.5753642,
-    "hits" : [
-      {
-        "_index" : "article",
-        "_type" : "_doc",
-        "_id" : "1",
-        "_score" : 0.5753642,
-        "_source" : {
-          "content" : "北京大学今年考研一飞冲天"
-        }
-      }
-    ]
-  }
-}
-```
+短语匹配是利用倒排索引中的位置信息实现的。
 
-## 同义词过滤器 Synonym Token Filter
+判断文档是否和短语`huawei mate pro`匹配，要同时满足如下条件：
 
-同义词过滤器配置示例：
-
-```json
-PUT /test_index
-{
-    "settings": {
-        "index" : {
-            "analysis" : {
-                "analyzer" : {
-                    "my-synonym" : {  // 自定义分词器名字
-                        "tokenizer" : "whitespace",
-                        "filter" : ["my_synonym_fltr"]  // 指定过滤器
-                    }
-                },
-                "filter" : {
-                    "my_synonym_fltr" : {  // 自定义同义词过滤器名字
-                        "type" : "synonym",  // type 为synonym，
-                        "synonyms_path" : "analysis/synonym.txt"
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-其实同义词过滤器和以上面的同义词图过滤器配置用法都是一样的。区别如下：
-
-* 前者`type=synonym`，后者`type=synonym_graph`
-* 前者可以在文档索引期间使用，后者只能作为搜索分词的一部分。
-
-另外在同义词图中的测试，将type更改后，测试仍然适用。
+* `huawei`、`mate`和`pro`必须全部出现
+* `mate`的位置比`huawei`大1
+* `pro`的位置比`mate`大2
 
 
 
