@@ -165,5 +165,194 @@ GET twitter/_search
 * `mate`的位置比`huawei`大1
 * `pro`的位置比`mate`大2
 
+### multi_match
+
+multi_match基于match查询，但是支持查询多个字段：
+
+```json
+GET article/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "hello world",  // 查询字符串
+      "fields": ["title", "content"]  // 要查找的字段
+    }
+  }
+}
+```
+
+如果不指定具体字段，将查询所有字段。multi_match查询支持match查询的所有参数。
+
+#### 通配符
+
+fields参数可以支持通配符，比如：
+
+```json
+"fields": [ "title", "*_name" ]
+```
+
+可以查询`title`, `first_name`和`last_name`字段
+
+#### 字段权重
+
+可以使用`^`标记，增大个别字段的权重：
+
+```json
+"fields": ["title^3", "content"]
+```
+
+如此一来，`title`字段的权重3倍于`content`字段，这将会影响搜索结果中`_score`的打分（打分越高，排名越靠前），`^`标记的权重的值越大，对打分影响越大。
+
+#### 查询方式
+
+`multi_match`的查询方式取决于`type`参数，默认值是`best_fields`，全部可选项及区别具体参考[官网](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-multi-match-query.html)
+
+##### best_fields
+
+如果你想搜索多个单词在某个字段中的最好匹配，`best_fields`最合适。例如，"huawei mate pro"出现在单个字段中，比"huawei"出现在一个字段，"mate pro"出现在另一个字段更有意义。
+
+`best_fields`方式为每个字段创建一个`match`查询，并包在一个`dis_max`查询中，来找到单个最匹配的字段。比如：
+
+```json
+GET /_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "brown fox",
+      "type":       "best_fields",
+      "fields":     [ "subject", "message" ],
+      "tie_breaker": 0.3
+    }
+  }
+}
+```
+
+会这样执行：
+
+```json
+GET /_search
+{
+  "query": {
+    "dis_max": {
+      "queries": [
+        { "match": { "subject": "brown fox" }},
+        { "match": { "message": "brown fox" }}
+      ],
+      "tie_breaker": 0.3
+    }
+  }
+}
+```
+
+打分方式：通常情况下，`best_fields`使用匹配最好的字段的打分，但是如果指定了`tie_breaker`参数，则有所不同，具体查看官网。
+
+注意：
+
+`best_fiels`和`most_fields`方式都会为每个字段创建一个`match`查询，因此`operator`和`minimum_should_match`参数将对每个字段单独应用，这可能不是你想要的。比如：
+
+```json
+GET /_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "Will Smith",
+      "type":       "best_fields",
+      "fields":     [ "first_name", "last_name" ],
+      "operator":   "and"
+    }
+  }
+}
+```
+
+将会以这样的逻辑执行：
+
+```
+(+first_name:will +first_name:smith) | (+last_name:will  +last_name:smith)
+```
+
+也就是说，如果一个文档要匹配，必须在单个字段中出现查询的所有词条。
+
+##### most_fields
+
+如果查询的多个字段的文本经过分词处理后（不管以怎样的方式），包含同样的文本，那么`most_fields`方式最合适。比如，主字段的查询结果可能包含同义词，词干，没有变音符的词条等（可以理解为关联性较强的文档）。第二个字段可能包含原始的查询词条（更准确，但是范围更小，但是打分高）。通过合并这些字段的打分，我们可以匹配尽可能多的文档（主字段），但是最接近的结果又可以获得优先展示（第二个字段）。
+
+如下查询：
+
+```json
+GET /_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "quick brown fox",
+      "type":       "most_fields",
+      "fields":     [ "main_filed", "strict_field" ]
+    }
+  }
+}
+```
+
+将会这样执行：
+
+```json
+GET /_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        { "match": { "main_filed":  "quick brown fox" }},
+        { "match": { "strict_field": "quick brown fox" }}
+      ]
+    }
+  }
+}
+```
+
+打分方式：每个`match`语句的打分被加总，然后除以`match`语句的数量。
+
+##### cross_fields
+
+`cross_fields`方式特别适合要匹配多个字段的结构化文档。比如，要从first_name和last_name字段中查询"Will Smith"，最匹配的应该是Will出现firs_name字段，而Smith出现在last_name字段。
+
+一种处理这种查询的方式是只需要将first_name和last_name索引到一个full_name字段。但是，这只能在索引时操作。而cross_fields方式尝试在查询时解决这种问题。它先将查询字符串分词为一个个词条，然后在指定字段中查找每个词条。
+
+下面的查询：
+
+```json
+GET /_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "Will Smith",
+      "type":       "cross_fields",
+      "fields":     [ "first_name", "last_name" ],
+      "operator":   "and"
+    }
+  }
+}
+```
+
+将会这样执行：
+
+```
++(first_name:will  last_name:will)
++(first_name:smith last_name:smith)
+```
+
+也就是说，一个文档如果要匹配，所有的词条必须出现在至少一个字段中。
+
+### common
+
+`common`查询时可以将停用词考虑在内，对于能提高查询精度，影响查询结果的停用词是不错的选择，并且不会牺牲性能。
+
+#### 问题
+
+查询的每个词条都有花销。比如，搜索"The brown fox"将产生3次词条查询，也就是"the"，"brown"，"fox"，每次查询都要搜索索引中的所有文档。对于"the"的查询很可能会匹配到大量文档，但是比起另外两次查询，"the"对于相关性的影响要小得多。
+
+之前的方案是，忽略哪些高频出现的词条。也就是将"the"作为停用词对待，这样不仅能减少索引的大小，还可以较少需要执行查询的词条的数量。
+
+这种方案的问题是，尽管停用词对相关性的影响很小，但它们仍然很重要。如果移除了停用词，不仅影响查询的精度（比如，无法区分"happy"和"not happy"），甚至是丢失查询结果（"To be or not to be"压根不会被搜到）。
+
+#### 解决方案
+
 
 
