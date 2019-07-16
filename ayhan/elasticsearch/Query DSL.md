@@ -354,5 +354,215 @@ GET /_search
 
 #### 解决方案
 
+`common`查询将要查询的词条分为两组：重要的（比如，低频词条）和相对不重要的（比如，像停用词这样的高频词条）。
 
+首先，查询能匹配重要词条的文档，包含这类词条的文档相对较少并且对相关性影响较大。
 
+然后，对不重要的词条执行第二次查询，这类词条在文档中高频出现并且对相关性影响较小。但是，这里不会计算所有匹配文档的相关性打分，只计算在第一次查询中已经匹配的文档。通过这种方式，高频词条可以改进相关性计算，却不用付出过大的性能代价。
+
+如果查询只包含高频词条，那么每次查询会以`AND`连接，也就是所有的词条都需要。尽管单个词条会匹配到大量文档，但是词条的联合可以缩小范围为最相关的文档。不过，通过指定`minimum_should_match`，每次查询也可以用`OR`连接，但是这种情况下，需要指定一个足够大的值。
+
+词条是分布在高频组还是低频组，是基于`cutoff_frequency`，其可以指定为绝对频率（`>=1`），或者是相对频率（`0.0 .. 1.0`），高于设定值的属于高频词条，反之低频词条。
+
+#### 示例
+
+下面的示例中，文档频率大于0.1%的单词（比如，"this"和"is"）视为*common terms*
+
+```json
+GET /_search
+{
+    "query": {
+        "common": {
+            "body": {
+                "query": "this is bonsai cool",
+                "cutoff_frequency": 0.001
+            }
+        }
+    }
+}
+```
+
+要匹配的词条数可以通过以下参数控制：
+
+* `minimum_should_match`  指定低频词至少要匹配几个
+  * `high_freq`  指定高频词至少匹配几个
+  * `low_freq`  指定低频词至少匹配几个
+* `low_freq_operator`（默认"or"）
+* `high_freq_oprator`（默认"or"）
+
+对于低频词条，设置`low_freq_operator`为`and`，来要求所有词条都满足：
+
+```json
+GET /_search
+{
+    "query": {
+        "common": {
+            "body": {  // 查询body字段
+                "query": "nelly the elephant as a cartoon",
+                "cutoff_frequency": 0.001,
+                "low_freq_operator": "and"
+            }
+        }
+    }
+}
+```
+
+以上相当于：
+
+```json
+GET /_search
+{
+    "query": {
+        "bool": {
+            "must": [
+            { "term": { "body": "nelly"}},
+            { "term": { "body": "elephant"}},
+            { "term": { "body": "cartoon"}}
+            ],
+            "should": [
+            { "term": { "body": "the"}},
+            { "term": { "body": "as"}},
+            { "term": { "body": "a"}}
+            ]
+        }
+    }
+}
+```
+
+也可以通过`minimum_should_match`参数指定低频词（重要词）出现的最小百分比，比如：
+
+```json
+GET /_search
+{
+    "query": {
+        "common": {
+            "body": {
+                "query": "nelly the elephant as a cartoon",
+                "cutoff_frequency": 0.001,
+                "minimum_should_match": 2
+            }
+        }
+    }
+}
+```
+
+以上约等于：
+
+```json
+GET /_search
+{
+    "query": {
+        "bool": {
+            "must": {
+                "bool": {
+                    "should": [
+                    { "term": { "body": "nelly"}},
+                    { "term": { "body": "elephant"}},
+                    { "term": { "body": "cartoon"}}
+                    ],
+                    "minimum_should_match": 2  // nelly、elephant、cartoon中至少匹配到两个，才影响相关性
+                }
+            },
+            "should": [
+                { "term": { "body": "the"}},
+                { "term": { "body": "as"}},
+                { "term": { "body": "a"}}
+                ]
+        }
+    }
+}
+```
+
+如果想同时指定低频词和高频词的匹配数，可以指定`minimum_should_match`的`low_freq`和`high_freq`：
+
+```json
+GET /_search
+{
+    "query": {
+        "common": {
+            "body": {
+                "query": "nelly the elephant not as a cartoon",
+                "cutoff_frequency": 0.001,
+                "minimum_should_match": {
+                    "low_freq" : 2,
+                    "high_freq" : 3
+                }
+            }
+        }
+    }
+}
+```
+
+以上相当于：
+
+```json
+GET /_search
+{
+    "query": {
+        "bool": {
+            "must": {
+                "bool": {
+                    "should": [
+                    { "term": { "body": "nelly"}},
+                    { "term": { "body": "elephant"}},
+                    { "term": { "body": "cartoon"}}
+                    ],
+                    "minimum_should_match": 2  // 以上3个词条至少匹配两个
+                }
+            },
+            "should": {
+                "bool": {
+                    "should": [
+                    { "term": { "body": "the"}},
+                    { "term": { "body": "not"}},
+                    { "term": { "body": "as"}},
+                    { "term": { "body": "a"}}
+                    ],
+                    "minimum_should_match": 3  // 以上四个词条至少匹配3个
+                }
+            }
+        }
+    }
+}
+```
+
+如果为高频词指定了`minimum_should_match`，并且查询字符串中只有高频词时：
+
+```
+GET /_search
+{
+    "query": {
+        "common": {
+            "body": {
+                "query": "how not to be",
+                "cutoff_frequency": 0.001,
+                "minimum_should_match": {
+                    "low_freq" : 2,
+                    "high_freq" : 3
+                }
+            }
+        }
+    }
+}
+```
+
+以上相当于：
+
+```json
+GET /_search
+{
+    "query": {
+        "bool": {
+            "should": [
+            { "term": { "body": "how"}},
+            { "term": { "body": "not"}},
+            { "term": { "body": "to"}},
+            { "term": { "body": "be"}}
+            ],
+            "minimum_should_match": "3<50%"  // 老实说，我也没看明白
+        }
+    }
+}
+```
+
+最后，`common`查询也支持`boost`和`analyzer`参数。
