@@ -566,3 +566,168 @@ GET /_search
 ```
 
 最后，`common`查询也支持`boost`和`analyzer`参数。
+
+## term查询
+
+term查询是一种适用于结构化数据的精确查询，它不会像全文检索一样对搜索做分词。结构化数据包括日期，IP，价格，商品条码等。注意：要避免对text字段使用term查询（text字段的内容经过语义处理，可能发生变化）。
+
+### term
+
+```json
+GET /_search
+{
+    "query": {
+        "term": {
+            "user": {  // 要查找的字段
+                "value": "Kimchy",  // 该字段要精确包含的值
+                "boost": 1.0
+            }
+        }
+    }
+}
+```
+
+### terms
+
+同term，但是可以搜索多个值：
+
+```json
+GET /_search
+{
+    "query" : {
+        "terms" : {
+            "user" : ["foo", "bar"],
+            "boost" : 1.0
+        }
+    }
+}
+```
+
+以上只要user字段包含foo, 或者bar即可（Foo， bars不算）
+
+## 复合查询
+
+### constant_score
+
+包装一个过滤查询，所有匹配的文档会给予相同的打分1.0（因为过滤上下文不计算打分）
+
+```json
+GET /_search
+{
+    "query": {
+        "constant_score" : {
+            "filter" : {
+                "term" : { "user" : "kimchy"}
+            },
+            "boost" : 1.2
+        }
+    }
+}
+```
+
+### bool
+
+匹配布尔连接的多个查询，类别如下：
+
+* must  必须匹配，影响打分
+* filter 必须匹配，但是忽略打分（0分）
+* should  应该匹配，影响打分
+* must_not  不能匹配（语句会在过滤上下文中执行，因此打分也会忽略（0分））
+
+注意：must和should的打分会累加为匹配文档最终打分
+
+```json
+POST _search
+{
+  "query": {
+    "bool" : {
+      "must" : {
+        "term" : { "user" : "kimchy" }
+      },
+      "filter": {
+        "term" : { "tag" : "tech" }
+      },
+      "must_not" : {
+        "range" : {
+          "age" : { "gte" : 10, "lte" : 20 }
+        }
+      },
+      "should" : [
+        { "term" : { "tag" : "wow" } },
+        { "term" : { "tag" : "elasticsearch" } }
+      ],
+      "minimum_should_match" : 1,  // 是否是针对should生效？
+      "boost" : 1.0
+    }
+  }
+}
+```
+
+bool查询中有一个`match_all`查询，会给所有文档打1.0分
+
+```json
+GET _search
+{
+  "query": {
+    "bool": {
+      "must": {
+        "match_all": {}
+      },
+      "filter": {
+        "term": {
+          "status": "active"
+        }
+      }
+    }
+  }
+}
+```
+
+另外，`constant_score`和`match_all`是同样的效果：
+
+```json
+GET _search
+{
+  "query": {
+    "constant_score": {
+      "filter": {
+        "term": {
+          "status": "active"
+        }
+      }
+    }
+  }
+}
+```
+
+### dis_max
+
+### function_score
+
+### boosting
+
+权重查询，返回能够匹配`positive`的文档，并减小匹配`negative`文档的打分
+
+```json
+GET /_search
+{
+    "query": {
+        "boosting" : {
+            "positive" : {
+                "term" : {
+                    "text" : "apple"
+                }
+            },
+            "negative" : {
+                 "term" : {
+                     "text" : "pie tart fruit crumble tree"
+                }
+            },
+            "negative_boost" : 0.5
+        }
+    }
+}
+```
+
+
+

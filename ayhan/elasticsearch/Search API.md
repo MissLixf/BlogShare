@@ -100,8 +100,8 @@ GET /twitter/_search
 
 查询的方式：
 
-* match 查询
-* term 查询
+* match 查询，针对全文检索
+* term 查询，词条精确搜索
 
 查询的逻辑运算：
 
@@ -203,8 +203,6 @@ PUT my_index
     }
   }
 }
-'
-
 ```
 
 ### `Explain`详细信息
@@ -223,13 +221,110 @@ GET twitter/_search
 
 ### `collapese` 字段折叠
 
-基于字段的值折叠搜索结果。比较复杂
+基于字段的值折叠搜索结果，相当于分组并排序后，取每组第一个文档。比如下面的查询检索每个用户获赞最高的tweet：
+
+```json
+GET /twitter/_search
+{
+    "query": {
+        "match": {
+            "message": "elasticsearch"
+        }
+    },
+    "collapse" : {
+        "field" : "user" // 根据user字段折叠
+    },
+    "sort": ["likes"], 
+}
+```
+
+
 
 ### `From, Size`
 
 from指定偏移，size指定返回的命中数，可以用于分页
 
-###`highlighte`高亮
+```json
+GET /_search
+{
+    "from" : 0, "size" : 10,
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+
+注意：from + size 不能大于`index.max_result_window`的默认值10000
+
+###`highlight`高亮
+
+基本用法：高亮需要指定字段
+
+```json
+GET /_search
+{
+  "query": {
+    "match": {"content": "mate"}
+  },
+  "highlight": {
+    "fields": {"content":{}}  // 使用默认样式高亮content字段
+  }
+}
+```
+
+返回结果如下，默认样式是加`<em>`标签：
+
+```json
+{
+  "took" : 261,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 18,
+    "successful" : 18,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 2,
+      "relation" : "eq"
+    },
+    "max_score" : 0.8328784,
+    "hits" : [
+      {
+        "_index" : "article",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 0.8328784,
+        "_source" : {
+          "content" : "huawei mate pro 销量一飞冲天"
+        },
+        "highlight" : {
+          "content" : [
+            "huawei <em>mate</em> pro 销量一飞冲天"
+          ]
+        }
+      },
+      {
+        "_index" : "article",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 0.7942397,
+        "_source" : {
+          "content" : "mate pro 销量以前销量普通"
+        },
+        "highlight" : {
+          "content" : [
+            "<em>mate</em> pro 销量以前销量普通"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+更多自定义设置参考[官网](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-highlighting.html)
 
 ### `indices_boost` 索引提升
 
@@ -247,7 +342,11 @@ GET /_search
 
 ### `inner_hits`内部命中
 
-返回父文档基于子文档的匹配，或返回子文档基于父文档的匹配，在这种嵌套的情况下，文档的返回基于嵌套内部对象的匹配。
+`join`父子字段和`nested`嵌套字段（对象数组）可以返回不同域内匹配的文档。
+
+inner_hits可以告诉你哪个嵌套对象或者父/子文档导致了特定信息被返回。inner_hits可以定义在`nested`, `has_child`, `has_parent`查询和过滤中。
+
+#### nested inner hits
 
 示例：
 
@@ -342,12 +441,12 @@ POST test001/_search
                   "_index" : "test001",
                   "_type" : "_doc",
                   "_id" : "1",
-                  "_nested" : {
+                  "_nested" : {  // 内部命中了哪个对象
                     "field" : "comments",
                     "offset" : 1
                   },
                   "_score" : 1.0,
-                  "_source" : {  // 
+                  "_source" : {  // 这个资源是 _nested中命中的那个对象
                     "author" : "nik9000",
                     "number" : 2
                   }
@@ -361,6 +460,254 @@ POST test001/_search
   }
 }
 ```
+
+上面的例子中，`_nested`元数据很关键，因为它定义了这个内部命中来自哪个内部嵌套对象：这里是comments字段中，偏移为1的那个嵌套对象。不过，由于排序和打分，命中位置通常和该对象定义时的位置不一致。
+
+特别要注意的是，嵌套对象存储在根文档中，而根文档在`_source`字段下，嵌套对象其实没有`_source`字段。为嵌套对象返回这个字段是有性能开销的，尤其是在`size`和内部命中的`size`设置的比默认值大的时候。为了避免这一点，可以在inner_hits中禁止包含_source字段，而是使用docvalue_fields字段。就像这样：
+
+```json
+POST test/_search
+{
+  "query": {
+    "nested": {
+      "path": "comments",
+      "query": {
+        "match": {"comments.text" : "words"}
+      },
+      "inner_hits": {
+        "_source" : false,
+        "docvalue_fields" : [
+          "comments.number"
+        ]
+      }
+    }
+  }
+}
+```
+
+#### 多层嵌套字段和内部命中
+
+示例：以下comments嵌套字段中又包含一个votes嵌套字段：
+
+```json
+// 定义mapping
+PUT test
+{
+  "mappings": {
+    "properties": {
+      "comments": {
+        "type": "nested",
+        "properties": {
+          "votes": {
+            "type": "nested"
+          }
+        }
+      }
+    }
+  }
+}
+
+// 索引文档
+PUT test/_doc/1?refresh
+{
+  "title": "Test title",
+  "comments": [
+    {
+      "author": "kimchy",
+      "text": "comment text",
+      "votes": []
+    },
+    {
+      "author": "nik9000",
+      "text": "words words words",
+      "votes": [
+        {"value": 1 , "voter": "kimchy"},
+        {"value": -1, "voter": "other"}
+      ]
+    }
+  ]
+}
+
+// inner hits查询
+POST test/_search
+{
+  "query": {
+    "nested": {
+      "path": "comments.votes",
+        "query": {
+          "match": {
+            "comments.votes.voter": "kimchy"
+          }
+        },
+        "inner_hits" : {}
+    }
+  }
+}
+```
+
+返回结果如下：
+
+```json
+{
+  ...,
+  "hits": {
+    "total" : {
+        "value": 1,
+        "relation": "eq"
+    },
+    "max_score": 0.6931472,
+    "hits": [
+      {
+        "_index": "test",
+        "_type": "_doc",
+        "_id": "1",
+        "_score": 0.6931472,
+        "_source": ...,
+        "inner_hits": {
+          "comments.votes": { 
+            "hits": {
+              "total" : {
+                  "value": 1,
+                  "relation": "eq"
+              },
+              "max_score": 0.6931472,
+              "hits": [
+                {
+                  "_index": "test",
+                  "_type": "_doc",
+                  "_id": "1",
+                  "_nested": {
+                    "field": "comments",
+                    "offset": 1,
+                    "_nested": {
+                      "field": "votes",
+                      "offset": 0
+                    }
+                  },
+                  "_score": 0.6931472,
+                  "_source": {
+                    "value": 1,
+                    "voter": "kimchy"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+#### 父子内部命中
+
+示例：
+
+```json
+PUT test
+{
+  "mappings": {
+    "properties": {
+      "my_join_field": {
+        "type": "join",
+        "relations": {
+          "my_parent": "my_child"
+        }
+      }
+    }
+  }
+}
+
+// 索引父文档
+PUT test/_doc/1?refresh
+{
+  "number": 1,
+  "my_join_field": "my_parent"
+}
+
+// 索引子文档
+PUT test/_doc/2?routing=1&refresh
+{
+  "number": 1,
+  "my_join_field": {
+    "name": "my_child",
+    "parent": "1"
+  }
+}
+
+// has_child搜索
+POST test/_search
+{
+  "query": {
+    "has_child": {
+      "type": "my_child",
+      "query": {
+        "match": {
+          "number": 1
+        }
+      },
+      "inner_hits": {}    
+    }
+  }
+}
+```
+
+返回结果：
+
+```json
+{
+    ...,
+    "hits": {
+        "total" : {
+            "value": 1,
+            "relation": "eq"
+        },
+        "max_score": 1.0,
+        "hits": [
+            {
+                "_index": "test",
+                "_type": "_doc",
+                "_id": "1",
+                "_score": 1.0,
+                "_source": {
+                    "number": 1,
+                    "my_join_field": "my_parent"
+                },
+                "inner_hits": {
+                    "my_child": {
+                        "hits": {
+                            "total" : {
+                                "value": 1,
+                                "relation": "eq"
+                            },
+                            "max_score": 1.0,
+                            "hits": [
+                                {
+                                    "_index": "test",
+                                    "_type": "_doc",
+                                    "_id": "2",
+                                    "_score": 1.0,
+                                    "_routing": "1",
+                                    "_source": {
+                                        "number": 1,
+                                        "my_join_field": {
+                                            "name": "my_child",
+                                            "parent": "1"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+    }
+}
+```
+
+
 
 ### 更过查询字段，略
 
