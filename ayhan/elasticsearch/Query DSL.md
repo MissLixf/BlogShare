@@ -567,6 +567,10 @@ GET /_search
 
 最后，`common`查询也支持`boost`和`analyzer`参数。
 
+### simple_query_string
+
+
+
 ## term查询
 
 term查询是一种适用于结构化数据的精确查询，它不会像全文检索一样对搜索做分词。结构化数据包括日期，IP，价格，商品条码等。注意：要避免对text字段使用term查询（text字段的内容经过语义处理，可能发生变化）。
