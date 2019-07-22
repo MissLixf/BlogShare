@@ -622,21 +622,21 @@ PUT test
 // 索引父文档
 PUT test/_doc/1?refresh
 {
-  "number": 1,
+  "content": "from parent balabala",
   "my_join_field": "my_parent"
 }
 
-// 索引子文档
+// 索引子文档,url中的routing必须是parent的id值
 PUT test/_doc/2?routing=1&refresh
 {
-  "number": 1,
+  "content": "from child balabala",
   "my_join_field": {
     "name": "my_child",
     "parent": "1"
   }
 }
 
-// has_child搜索，搜索父文档的子文档
+// has_child搜索，搜索子文档查找父文档
 POST test/_search
 {
   "query": {
@@ -644,7 +644,23 @@ POST test/_search
       "type": "my_child",
       "query": {
         "match": {
-          "number": 1
+          "content": "from child balabala"
+        }
+      },
+      "inner_hits": {}    
+    }
+  }
+}
+
+// has_parent，基于父文档查找子文档
+POST test/_search
+{
+  "query": {
+    "has_parent": {
+      "type": "my_parent",
+      "query": {
+        "match": {
+          "content": "from parent balabala"
         }
       },
       "inner_hits": {}    
