@@ -1,4 +1,4 @@
-## Search
+##  Search
 
 搜索条件可以通过查询字符串，也可以在请求体中传递。
 
@@ -324,6 +324,32 @@ GET /_search
 }
 ```
 
+指定高亮文本的摘要长度：
+
+```json
+GET post001/_search
+{
+  "query": {
+    "multi_match": {
+      "fields": ["title", "content"],
+      "query": "考研"
+    }
+  },
+  "highlight": {
+    "fields": {
+      "content": {
+        "number_of_fragments": 3,  // 返回几个匹配的摘要
+        "fragment_size": 50  // 每个摘要的长度
+    },
+      "title": {}
+    }
+  }
+  
+}
+```
+
+
+
 更多自定义设置参考[官网](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-highlighting.html)
 
 ### `indices_boost` 索引提升
@@ -339,6 +365,8 @@ GET /_search
     ]
 }
 ```
+
+如果指定的索引不存在，会报错。
 
 ### `inner_hits`内部命中
 
@@ -983,6 +1011,17 @@ GET twitter/_search
 如果使用了search_after，`from`参数只能设置为0或者-1
 
 search_after无法满足随意跳页的要求，类似于scroll API。不同之处在于，search_after是无状态的，因此索引的更新或者删除，可能会改变排序。
+
+也可使用打分（搜索时默认按打分倒序）和id来排序：
+
+```json
+"sort": [
+    {"_score": {"order": "desc"}},
+    {"_id": {"order":"asc"}}
+]
+```
+
+注意：search_after和collapse不能同时使用！！！
 
 ### seq_no_primary_term
 

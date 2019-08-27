@@ -159,5 +159,5 @@
   datetime.datetime.utcnow()
   ```
 
-  
+* required=True 保存时必须提供该字段; blank=True， 提供该字段的值可以是空值
 

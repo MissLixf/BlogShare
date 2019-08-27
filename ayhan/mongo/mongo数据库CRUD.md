@@ -2110,6 +2110,14 @@ MongoDB支持通过`$text`运算符对文本字段作索引，以方便文本搜
 
   插入字段默认是double类型，很奇怪。
 
+  可以显示的指定类型，如下：
+
+  ```javascript
+  db.getCollection('chatmessages').updateMany({}, {'$set': {'role': NumberInt(0)}})
+  ```
+
+  
+
 * 批量更改某字段类型：double => int
 
   ```js
